@@ -1,0 +1,9 @@
+.env
+*.pyc
+__pycache__/
+.venv/
+dist/
+*.egg-info/
+.chroma/
+configs/*.yaml
+!configs/example.yaml

@@ -1,0 +1,36 @@
+# Example user configuration
+# Copy this file to configs/<your-name>.yaml and fill in your details
+
+user:
+  name: "Your Name"
+  slack_user_id: "U12345678"
+  slack_user_token: "${SLACK_USER_TOKEN}"  # or paste your xoxp- token
+
+# Where the agent posts drafts for your review
+review:
+  channel_id: "C12345678"  # your private review channel
+
+# Knowledge sources — point these to ANY repos/docs your agent should know about
+knowledge:
+  github_repos:
+    - "your-org/your-repo"
+    - "your-org/another-repo"
+  google_docs:
+    - "your-google-doc-id"
+
+# How the agent should respond
+persona:
+  tone: "professional but casual, like a smart coworker"
+  instructions: |
+    You are acting as [Your Name] from [Your Team].
+    Be helpful and specific.
+    Keep responses concise.
+
+# Request tracking (optional — log requests to a Google Doc)
+tracking:
+  google_doc_id: ""
+
+# Weekly digest settings
+digest:
+  cron: "0 17 * * 5"  # every Friday 5pm
+  channel: "DM"  # or a channel ID
