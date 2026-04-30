@@ -243,8 +243,9 @@ def _process_single_mention(
     agent: DraftAgent,
     review_queue: ReviewQueue,
     tracker: RequestTracker,
-):
-    """Process a single mention: triage → draft → post to review."""
+    worker_id: int = 0,
+) -> str:
+    """Process a single mention: triage → draft → post to review. Returns status."""
     sender = match.get("user", "") or match.get("username", "")
     text = match.get("text", "")
     ts = match.get("ts", "")
@@ -259,11 +260,11 @@ def _process_single_mention(
     except Exception:
         sender_name = sender
 
-    logger.info(f"Processing mention from {sender_name} in #{channel_name}")
+    logger.info(f"[Agent #{worker_id}] Processing: {sender_name} in #{channel_name}")
 
     # Triage
     if not agent.triage(cfg, text, sender_name, channel_name):
-        logger.info(f"  Skipped (triage: not worth replying)")
+        logger.info(f"[Agent #{worker_id}] Skipped (not worth replying): {sender_name}")
         msg_ts_link = ts.replace(".", "")
         msg_link = f"https://slack.com/archives/{channel_id}/p{msg_ts_link}"
         try:
@@ -273,7 +274,7 @@ def _process_single_mention(
             )
         except Exception:
             pass
-        return
+        return "skipped"
 
     # Get thread context
     thread_context = None
@@ -290,6 +291,7 @@ def _process_single_mention(
             pass
 
     # Generate draft
+    logger.info(f"[Agent #{worker_id}] Drafting response for {sender_name}...")
     try:
         draft = agent.generate_draft(
             user_config=cfg,
@@ -299,8 +301,8 @@ def _process_single_mention(
             thread_context=thread_context,
         )
     except Exception as e:
-        logger.error(f"Failed to generate draft: {e}")
-        return
+        logger.error(f"[Agent #{worker_id}] Failed to generate draft: {e}")
+        return "error"
 
     # Post to review queue
     review_queue.post_draft(
@@ -323,6 +325,9 @@ def _process_single_mention(
         draft=draft,
     )
 
+    logger.info(f"[Agent #{worker_id}] Done: draft posted for {sender_name}")
+    return "drafted"
+
 
 def _process_mentions_parallel(
     matches: list,
@@ -335,22 +340,64 @@ def _process_mentions_parallel(
     tracker: RequestTracker,
     max_workers: int = 10,
 ):
-    """Process multiple mentions in parallel."""
-    logger.info(f"Processing {len(matches)} mentions in parallel (max {max_workers} workers)")
+    """Process multiple mentions in parallel with summary."""
+    n = len(matches)
+    actual_workers = min(max_workers, n)
+    logger.info(f"Dispatching {n} mentions to {actual_workers} agents...")
+
+    # Post start message to review channel
+    try:
+        bot_client.chat_postMessage(
+            channel=cfg.review_channel_id,
+            text=f":rocket: *Ghost Crew dispatched {actual_workers} agents* to process {n} mentions...",
+        )
+    except Exception:
+        pass
+
+    import time as _time
+    start = _time.time()
+
+    drafted = 0
+    skipped = 0
+    errors = 0
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {
             executor.submit(
                 _process_single_mention,
                 match, cfg, uid, bot_client, user_client, agent, review_queue, tracker,
+                worker_id=i + 1,
             ): match
-            for match in matches
+            for i, match in enumerate(matches)
         }
         for future in as_completed(futures):
             try:
-                future.result()
+                status = future.result()
+                if status == "drafted":
+                    drafted += 1
+                elif status == "skipped":
+                    skipped += 1
+                else:
+                    errors += 1
             except Exception as e:
                 logger.error(f"Worker failed: {e}")
+                errors += 1
+
+    elapsed = round(_time.time() - start, 1)
+
+    summary = (
+        f":checkered_flag: *Ghost Crew batch complete* — {elapsed}s\n"
+        f":white_check_mark: {drafted} drafted | :see_no_evil: {skipped} skipped | :warning: {errors} errors"
+    )
+    logger.info(summary)
+
+    try:
+        bot_client.chat_postMessage(
+            channel=cfg.review_channel_id,
+            text=summary,
+        )
+    except Exception:
+        pass
 
 
 def _user_already_replied(client: WebClient, user_id: str, channel_id: str, msg_ts: str, thread_ts: str | None) -> bool:
