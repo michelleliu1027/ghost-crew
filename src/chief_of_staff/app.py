@@ -139,15 +139,19 @@ def create_app() -> App:
     scheduler = BackgroundScheduler()
 
     def poll_mentions():
-        """Search for recent @mentions and DMs of each registered user."""
+        """Search for recent @mentions and DMs of each registered user (last 2 min only)."""
+        from datetime import datetime, timedelta, timezone
+        after = (datetime.now(timezone.utc) - timedelta(minutes=2)).strftime("%Y-%m-%d")
+
         for uid, cfg in configs.items():
             client = user_clients.get(uid)
             if not client:
                 continue
 
-            # Run two searches: @mentions across all channels + DMs
+            # Run two searches: @mentions across all channels + DMs (today only)
             all_matches = []
-            for query in [f"<@{uid}>", "to:me"]:
+            for base_query in [f"<@{uid}>", "to:me"]:
+                query = f"{base_query} after:{after}"
                 try:
                     result = client.search_messages(
                         query=query,
@@ -159,7 +163,9 @@ def create_app() -> App:
                 except Exception as e:
                     logger.error(f"Failed to search ({query}) for {cfg.name}: {e}")
 
-            matches = all_matches
+            # Filter to only messages in the last 2 minutes
+            cutoff = time.time() - 120
+            matches = [m for m in all_matches if float(m.get("ts", "0")) > cutoff]
             pending = []
             for match in matches:
                 ts = match.get("ts", "")
