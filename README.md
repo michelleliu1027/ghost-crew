@@ -2,37 +2,52 @@
 
 Your invisible AI crew that handles Slack requests on your behalf.
 
-Ghost Crew monitors your Slack mentions and DMs, drafts responses using Claude (with context from your codebase), and lets you review before sending — all while everyone thinks they're talking to you.
+People @mention you on Slack. Ghost Crew picks it up, drafts a response using Claude (with context from your codebase), and sends it to your private review channel. You approve, edit, or discard — and the response goes out as you. Nobody knows.
+
+## Why
+
+If you're the kind of person who gets @mentioned 30 times a day across random Slack channels — data requests, status updates, "hey can you check this" — and you end up asking AI to draft most of your replies anyway, this automates that entire loop.
+
+- **Fully invisible** — no bot joins your channels, no one sees anything
+- **You stay in control** — every draft goes through your review before sending
+- **Knows your codebase** — indexes your GitHub repos so Claude gives accurate, context-aware answers
+- **Smart filtering** — only drafts replies for messages you haven't responded to yet
+- **Multi-tenant** — your whole team can use it, each with their own config
+- **Backfill** — catch up on the last 30 days of unanswered @mentions in one go
 
 ## How it works
 
 ```
-Someone @mentions you or DMs you on Slack
+Someone @mentions you on Slack (any channel, any DM)
         |
         v
-Ghost Crew picks it up, queries your knowledge base (GitHub repos, docs)
+Ghost Crew polls for new mentions every 30s (using your user token)
         |
         v
-Claude drafts a response in your voice/tone
+Checks: have you already replied? If yes, skip.
+        |
+        v
+Queries your knowledge base (GitHub repos, docs) for relevant context
+        |
+        v
+Claude drafts a response in your voice
         |
         v
 Draft appears in your private review channel
         |
         v
-You react:  approve |  edit |  discard
+You react:  approve  |  edit  |  discard
         |
         v
 Approved messages are sent as YOU (your Slack identity)
 ```
-
-A weekly digest summarizes everything that was handled.
 
 ## Quick start
 
 ### 1. Clone and install
 
 ```bash
-git clone git@github.com:your-org/ghost-crew.git
+git clone git@github.com:michelleliu1027/ghost-crew.git
 cd ghost-crew
 pip install -e .
 ```
@@ -56,21 +71,23 @@ Go to [api.slack.com/apps](https://api.slack.com/apps) and create a new app from
 
 | Scope | Why |
 |-------|-----|
-| `app_mentions:read` | Detect when someone @mentions you |
-| `channels:history` | Read messages in public channels |
-| `groups:history` | Read messages in private channels |
-| `im:history` | Read DMs |
-| `mpim:history` | Read group DMs |
 | `chat:write` | Post drafts to your review channel |
 | `reactions:read` | Detect your approve/discard reactions |
 | `reactions:write` | Confirm sent messages with a reaction |
 | `users:read` | Look up sender names |
 | `channels:read` | Look up channel names |
 | `groups:read` | Look up private channel names |
-| `im:read` | Look up DM info |
 
 **User Token Scopes** (same page, scroll down):
-- `chat:write` — this is what lets Ghost Crew send messages **as you**
+
+| Scope | Why |
+|-------|-----|
+| `chat:write` | Send messages as you |
+| `search:read` | Search for @mentions across all channels |
+| `search:read.im` | Search in DMs |
+| `search:read.mpim` | Search in group DMs |
+| `search:read.private` | Search in private channels |
+| `search:read.public` | Search in public channels |
 
 **Install the app** to your workspace. You'll get:
 - Bot token (`xoxb-...`)
@@ -80,13 +97,23 @@ Go to [api.slack.com/apps](https://api.slack.com/apps) and create a new app from
 
 ```bash
 cp .env.example .env
-# Fill in your tokens:
-#   SLACK_BOT_TOKEN=xoxb-...
-#   SLACK_USER_TOKEN=xoxp-...
-#   SLACK_APP_TOKEN=xapp-...
-#   SLACK_SIGNING_SECRET=...
-#   ANTHROPIC_API_KEY=sk-ant-...
-#   GITHUB_TOKEN=ghp_...        (optional, for private repos)
+```
+
+Fill in your `.env`:
+```bash
+SLACK_BOT_TOKEN=xoxb-...
+SLACK_USER_TOKEN=xoxp-...
+SLACK_APP_TOKEN=xapp-...
+SLACK_SIGNING_SECRET=...
+
+# Claude — pick one:
+# Option A: AWS Bedrock (uses AWS SSO, no API key needed)
+AWS_REGION=us-east-1
+# Option B: Anthropic API directly
+# ANTHROPIC_API_KEY=sk-ant-...
+
+# Optional
+GITHUB_TOKEN=ghp_...
 ```
 
 ### 4. Create your config
@@ -95,12 +122,10 @@ cp .env.example .env
 cp configs/example.yaml configs/your-name.yaml
 ```
 
-Edit `configs/your-name.yaml`:
-
 ```yaml
 user:
   name: "Your Name"
-  slack_user_id: "U12345678"       # your Slack member ID
+  slack_user_id: "U12345678"       # Profile > ... > Copy member ID
   slack_user_token: "${SLACK_USER_TOKEN}"
 
 review:
@@ -108,17 +133,18 @@ review:
 
 knowledge:
   github_repos:
-    - "your-org/repo-one"
-    - "your-org/repo-two"
+    - "your-org/your-repo"
 
 persona:
   tone: "professional but casual"
   instructions: |
     You are acting as [Your Name] from [Your Team].
     Be helpful and specific. Keep responses concise.
-```
 
-> **Find your Slack User ID:** Click your profile picture > Profile > `...` menu > Copy member ID.
+digest:
+  cron: "0 17 * * 5"
+  channel: "DM"
+```
 
 ### 5. Create a private review channel
 
@@ -129,6 +155,29 @@ Create a private Slack channel (e.g. `#yourname-ghost-crew`), invite the bot (`/
 ```bash
 python -m chief_of_staff
 ```
+
+To run in the background:
+```bash
+nohup python -m chief_of_staff > ghost-crew.log 2>&1 &
+```
+
+## Backfill
+
+First time using Ghost Crew? Catch up on unanswered @mentions from the last 30 days:
+
+```bash
+# Preview what it finds (no drafts generated)
+python scripts/backfill.py --dry-run
+
+# Generate drafts for all unanswered mentions
+python scripts/backfill.py
+
+# Customize
+python scripts/backfill.py --days 7
+python scripts/backfill.py --user "Your Name" --days 14
+```
+
+Only messages you **haven't already replied to** will get drafts — so it won't spam your review channel with stuff you've already handled.
 
 ## Reviewing drafts
 
@@ -142,9 +191,9 @@ When a request comes in, Ghost Crew posts to your review channel:
 >
 > React: :white_check_mark: to send | :pencil2: to edit | :x: to discard
 
-- **:white_check_mark:** sends the draft as you, immediately
-- **:pencil2:** reply in thread with your edited version, then :white_check_mark:
-- **:x:** discard, nothing is sent
+- :white_check_mark: — sends the draft as you, immediately
+- :pencil2: — reply in thread with your edited version, then :white_check_mark:
+- :x: — discard, nothing is sent
 
 ## Adding more people
 
@@ -154,51 +203,35 @@ Ghost Crew is multi-tenant. Each person just needs:
 2. Their own Slack User Token (they authorize the app once)
 3. Their own private review channel
 
-Run the onboarding script:
-
 ```bash
 python scripts/onboard_user.py
 ```
 
-Or just copy `configs/example.yaml` and fill it in.
-
 ## Knowledge base
 
-Ghost Crew indexes your GitHub repos into a local vector database (ChromaDB) so Claude can reference your codebase when drafting responses.
-
-To re-index:
+Ghost Crew indexes your GitHub repos into a local vector database (ChromaDB) so Claude can reference your actual code when drafting responses.
 
 ```bash
 python scripts/reindex.py              # all users
 python scripts/reindex.py "Your Name"  # specific user
 ```
 
-Supported file types: `.py`, `.sql`, `.md`, `.yaml`, `.yml`, `.toml`, `.json`, `.txt`, `.sh`, `.tf`
-
-## Optional: Google Docs tracking
-
-If you want requests logged to a Google Doc:
-
-1. Create a GCP service account with Google Docs API access
-2. Share your tracking doc with the service account email
-3. Set `GOOGLE_SERVICE_ACCOUNT_JSON` in `.env`
-4. Set `tracking.google_doc_id` in your config
+Supported: `.py` `.sql` `.md` `.yaml` `.yml` `.toml` `.json` `.txt` `.sh` `.tf`
 
 ## Weekly digest
 
-Every Friday at 5pm (configurable), Ghost Crew DMs you a summary:
+Every Friday at 5pm (configurable), you get a summary:
 
 ```
 Weekly Digest — 14 requests handled
 
- Approved: 10
- Edited before sending: 3
- Discarded: 1
+  Approved: 10
+  Edited before sending: 3
+  Discarded: 1
 
 Details:
- @alice in #marketing: Can you pull conversion numbers...
- @bob in #product: What's the status of the ETL pipeline...
-...
+  @alice in #marketing: Can you pull conversion numbers...
+  @bob in #product: What's the status of the ETL pipeline...
 ```
 
 ## Architecture
@@ -207,11 +240,12 @@ Details:
 ghost-crew/
 ├── configs/              # one YAML per user
 ├── scripts/
+│   ├── backfill.py       # catch up on last N days of @mentions
 │   ├── onboard_user.py   # interactive setup for new users
 │   └── reindex.py        # refresh knowledge base
 └── src/chief_of_staff/
-    ├── app.py            # Slack listener + review queue + digest scheduler
-    ├── agent.py          # Claude-powered draft generation
+    ├── app.py            # mention polling + review queue + digest scheduler
+    ├── agent.py          # Claude draft generation (Bedrock or Anthropic API)
     ├── config.py         # multi-tenant config loader
     ├── knowledge.py      # GitHub repo -> ChromaDB RAG indexer
     ├── reviewer.py       # review channel posting + approval parsing
