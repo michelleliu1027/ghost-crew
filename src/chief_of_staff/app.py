@@ -376,62 +376,85 @@ def _process_mentions_parallel(
                 logger.error(f"Worker failed: {e}")
                 results.append({"status": "error"})
 
-    # --- Post to review channel: drafts first, then skips ---
+    # --- Post ONE summary message, then drafts as thread replies ---
     drafted_results = [r for r in results if r["status"] == "drafted"]
     skipped_results = [r for r in results if r["status"] == "skipped"]
     error_count = sum(1 for r in results if r["status"] == "error")
 
-    # 1. Post each draft individually (needs separate approval)
-    for r in drafted_results:
-        review_queue.post_draft(
-            review_channel_id=cfg.review_channel_id,
-            original_channel=r["channel_id"],
-            original_ts=r["ts"],
-            original_thread_ts=r["thread_ts"],
-            sender_name=r["sender"],
-            original_message=r["text"],
-            draft_response=r["draft"],
-            owner_slack_id=uid,
-        )
-        tracker.log_request(
-            doc_id=cfg.tracking_doc_id,
-            sender=r["sender_name"],
-            channel=r["channel_name"],
-            message=r["text"],
-            draft=r["draft"],
-        )
-
-    # 2. Post all skips as one consolidated message
-    if skipped_results:
-        skip_lines = []
-        for r in skipped_results:
-            skip_lines.append(
-                f"• <@{r['sender']}> in <#{r['channel_id']}> — _{r['reason']}_ | <{r['msg_link']}|View>"
-            )
-        skip_text = ":see_no_evil: *Skipped messages:*\n" + "\n".join(skip_lines)
-        try:
-            bot_client.chat_postMessage(
-                channel=cfg.review_channel_id,
-                text=skip_text,
-            )
-        except Exception:
-            pass
-
-    # 3. Summary
     elapsed = round(_time.time() - start, 1)
-    summary = (
-        f":checkered_flag: *Ghost Crew batch complete* — {elapsed}s\n"
-        f":white_check_mark: {len(drafted_results)} drafted | :see_no_evil: {len(skipped_results)} skipped | :warning: {error_count} errors"
-    )
-    logger.info(summary)
 
+    # Build summary with skips inline
+    summary_lines = [
+        f":ghost: *Ghost Crew Daily Report* — {elapsed}s",
+        f":white_check_mark: {len(drafted_results)} drafts ready | :see_no_evil: {len(skipped_results)} skipped | :warning: {error_count} errors",
+        "",
+    ]
+
+    if skipped_results:
+        summary_lines.append("*Skipped:*")
+        for r in skipped_results:
+            summary_lines.append(
+                f"  • <@{r['sender']}> in <#{r['channel_id']}> — _{r['reason']}_ | <{r['msg_link']}|View>"
+            )
+        summary_lines.append("")
+
+    if drafted_results:
+        summary_lines.append(f"*{len(drafted_results)} drafts below in thread* :point_down:")
+
+    summary_text = "\n".join(summary_lines)
+    logger.info(summary_text)
+
+    # Post the single summary message
+    summary_ts = None
     try:
-        bot_client.chat_postMessage(
+        result = bot_client.chat_postMessage(
             channel=cfg.review_channel_id,
-            text=summary,
+            text=summary_text,
         )
-    except Exception:
-        pass
+        summary_ts = result["ts"]
+    except Exception as e:
+        logger.error(f"Failed to post summary: {e}")
+
+    # Post each draft as a thread reply under the summary
+    if summary_ts:
+        for r in drafted_results:
+            msg_ts_link = r["ts"].replace(".", "")
+            thread_suffix = f"?thread_ts={r['thread_ts']}&cid={r['channel_id']}" if r.get("thread_ts") else ""
+            msg_link = f"https://slack.com/archives/{r['channel_id']}/p{msg_ts_link}{thread_suffix}"
+
+            draft_text = (
+                f"*From <@{r['sender']}>* in <#{r['channel_id']}> | <{msg_link}|View original>\n"
+                f">>> {r['text'][:500]}\n\n"
+                f"---\n"
+                f"*Draft response:*\n{r['draft']}\n\n"
+                f"React: :white_check_mark: to send | :x: to discard"
+            )
+
+            try:
+                bot_client.chat_postMessage(
+                    channel=cfg.review_channel_id,
+                    thread_ts=summary_ts,
+                    text=draft_text,
+                    metadata={
+                        "event_type": "draft_review",
+                        "event_payload": {
+                            "channel": r["channel_id"],
+                            "ts": r["ts"],
+                            "thread_ts": r.get("thread_ts") or r["ts"],
+                            "owner": uid,
+                        },
+                    },
+                )
+            except Exception as e:
+                logger.error(f"Failed to post draft in thread: {e}")
+
+            tracker.log_request(
+                doc_id=cfg.tracking_doc_id,
+                sender=r["sender_name"],
+                channel=r["channel_name"],
+                message=r["text"],
+                draft=r["draft"],
+            )
 
 
 def _user_already_replied(client: WebClient, user_id: str, channel_id: str, msg_ts: str, thread_ts: str | None) -> bool:
