@@ -115,8 +115,17 @@ def backfill(days: int = 30, target_user: str | None = None, dry_run: bool = Fal
                     continue
 
                 # Skip bot messages
-                if match.get("bot_id"):
+                if match.get("bot_id") or match.get("subtype") == "bot_message":
                     continue
+
+                # Skip bot users
+                if sender:
+                    try:
+                        user_info = bot_client.users_info(user=sender)
+                        if user_info.get("user", {}).get("is_bot", False):
+                            continue
+                    except Exception:
+                        pass
 
                 # Skip if user already replied
                 if _user_already_replied(user_client, uid, channel_id, ts, thread_ts):
