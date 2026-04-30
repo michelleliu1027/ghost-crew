@@ -318,13 +318,16 @@ def backfill(days: int = 30, target_user: str | None = None, dry_run: bool = Fal
             logger.error(f"Failed to post summary: {e}")
 
         if summary_ts:
-            for r in drafted:
+            for i, r in enumerate(drafted, 1):
+                orig = r['text'][:150].replace('\n', ' ')
+                if len(r['text']) > 150:
+                    orig += "..."
+
                 draft_text = (
-                    f"*From <@{r['sender']}>* in <#{r['channel_id']}> | <{r['msg_link']}|View original>\n"
-                    f">>> {r['text'][:500]}\n\n"
-                    f"---\n"
-                    f"*Draft response:*\n{r['draft']}\n\n"
-                    f"React: :white_check_mark: to send | :x: to discard"
+                    f":envelope: *#{i}* — <@{r['sender']}> in <#{r['channel_id']}> | <{r['msg_link']}|View original>\n"
+                    f"_{orig}_\n\n"
+                    f":speech_balloon: *Draft:*\n{r['draft']}\n\n"
+                    f":white_check_mark: send | :x: discard"
                 )
                 try:
                     bot_client.chat_postMessage(

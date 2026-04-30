@@ -428,17 +428,21 @@ def _process_mentions_parallel(
 
     # Post each draft as a thread reply under the summary
     if summary_ts:
-        for r in drafted_results:
+        for i, r in enumerate(drafted_results, 1):
             msg_ts_link = r["ts"].replace(".", "")
             thread_suffix = f"?thread_ts={r['thread_ts']}&cid={r['channel_id']}" if r.get("thread_ts") else ""
             msg_link = f"https://slack.com/archives/{r['channel_id']}/p{msg_ts_link}{thread_suffix}"
 
+            # Truncate original message
+            orig = r['text'][:150].replace('\n', ' ')
+            if len(r['text']) > 150:
+                orig += "..."
+
             draft_text = (
-                f"*From <@{r['sender']}>* in <#{r['channel_id']}> | <{msg_link}|View original>\n"
-                f">>> {r['text'][:500]}\n\n"
-                f"---\n"
-                f"*Draft response:*\n{r['draft']}\n\n"
-                f"React: :white_check_mark: to send | :x: to discard"
+                f":envelope: *#{i}* — <@{r['sender']}> in <#{r['channel_id']}> | <{msg_link}|View original>\n"
+                f"_{orig}_\n\n"
+                f":speech_balloon: *Draft:*\n{r['draft']}\n\n"
+                f":white_check_mark: send | :x: discard"
             )
 
             try:
