@@ -18,16 +18,16 @@ If you're the kind of person who gets @mentioned 30 times a day across random Sl
 ## How it works
 
 ```
-Someone @mentions you on Slack (any channel, any DM)
+Someone @mentions you or DMs you on Slack
         |
         v
-Ghost Crew polls for new mentions every 30s (using your user token)
+Ghost Crew polls every 30s: @mentions across all channels + all DMs
         |
         v
 Filter: skip bots, skip messages you already replied to
         |
         v
-AI Triage (Claude Sonnet): is this worth replying to?
+AI Triage (Claude): is this worth replying to?
         |                        |
      REPLY                     SKIP
         |                        |

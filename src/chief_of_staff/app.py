@@ -139,25 +139,27 @@ def create_app() -> App:
     scheduler = BackgroundScheduler()
 
     def poll_mentions():
-        """Search for recent @mentions of each registered user."""
+        """Search for recent @mentions and DMs of each registered user."""
         for uid, cfg in configs.items():
             client = user_clients.get(uid)
             if not client:
                 continue
 
-            try:
-                # Search for messages mentioning this user in the last 2 minutes
-                result = client.search_messages(
-                    query=f"<@{uid}>",
-                    sort="timestamp",
-                    sort_dir="desc",
-                    count=20,
-                )
-            except Exception as e:
-                logger.error(f"Failed to search mentions for {cfg.name}: {e}")
-                continue
+            # Run two searches: @mentions across all channels + DMs
+            all_matches = []
+            for query in [f"<@{uid}>", "to:me"]:
+                try:
+                    result = client.search_messages(
+                        query=query,
+                        sort="timestamp",
+                        sort_dir="desc",
+                        count=20,
+                    )
+                    all_matches.extend(result.get("messages", {}).get("matches", []))
+                except Exception as e:
+                    logger.error(f"Failed to search ({query}) for {cfg.name}: {e}")
 
-            matches = result.get("messages", {}).get("matches", [])
+            matches = all_matches
             pending = []
             for match in matches:
                 ts = match.get("ts", "")

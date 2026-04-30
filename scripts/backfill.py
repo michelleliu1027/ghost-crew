@@ -153,63 +153,72 @@ def backfill(days: int = 30, target_user: str | None = None, dry_run: bool = Fal
         user_client = WebClient(token=cfg.slack_user_token)
         logger.info(f"Backfilling {days} days of @mentions for {cfg.name}...")
 
-        # --- Phase 1: Collect all mentions ---
+        # --- Phase 1: Collect all mentions + DMs ---
         all_matches = []
-        page = 1
+        seen_keys = set()
+        queries = [f"<@{uid}> after:{after_date}", f"to:me after:{after_date}"]
 
-        while True:
-            try:
-                result = user_client.search_messages(
-                    query=f"<@{uid}> after:{after_date}",
-                    sort="timestamp",
-                    sort_dir="asc",
-                    count=100,
-                    page=page,
-                )
-            except Exception as e:
-                logger.error(f"Search failed: {e}")
-                break
+        for query in queries:
+            page = 1
+            while True:
+                try:
+                    result = user_client.search_messages(
+                        query=query,
+                        sort="timestamp",
+                        sort_dir="asc",
+                        count=100,
+                        page=page,
+                    )
+                except Exception as e:
+                    logger.error(f"Search failed ({query}): {e}")
+                    break
 
-            matches = result.get("messages", {}).get("matches", [])
-            if not matches:
-                break
+                matches = result.get("messages", {}).get("matches", [])
+                if not matches:
+                    break
 
-            for match in matches:
-                sender = match.get("user", "") or match.get("username", "")
-                ts = match.get("ts", "")
-                channel_info = match.get("channel", {})
-                channel_id = channel_info.get("id", "") if isinstance(channel_info, dict) else ""
-                thread_ts = match.get("thread_ts")
+                for match in matches:
+                    sender = match.get("user", "") or match.get("username", "")
+                    ts = match.get("ts", "")
+                    channel_info = match.get("channel", {})
+                    channel_id = channel_info.get("id", "") if isinstance(channel_info, dict) else ""
+                    thread_ts = match.get("thread_ts")
 
-                # Skip own messages
-                if sender == uid:
-                    continue
+                    # Deduplicate across queries
+                    msg_key = f"{channel_id}:{ts}"
+                    if msg_key in seen_keys:
+                        continue
+                    seen_keys.add(msg_key)
 
-                # Skip bot messages
-                if match.get("bot_id") or match.get("subtype") == "bot_message":
-                    continue
+                    # Skip own messages
+                    if sender == uid:
+                        continue
 
-                # Skip bot users
-                if sender:
-                    try:
-                        user_info = bot_client.users_info(user=sender)
-                        if user_info.get("user", {}).get("is_bot", False):
-                            continue
-                    except Exception:
-                        pass
+                    # Skip bot messages
+                    if match.get("bot_id") or match.get("subtype") == "bot_message":
+                        continue
 
-                # Skip if user already replied
-                if _user_already_replied(user_client, uid, channel_id, ts, thread_ts):
-                    continue
+                    # Skip bot users
+                    if sender:
+                        try:
+                            user_info = bot_client.users_info(user=sender)
+                            if user_info.get("user", {}).get("is_bot", False):
+                                continue
+                        except Exception:
+                            pass
 
-                all_matches.append(match)
+                    # Skip if user already replied
+                    if _user_already_replied(user_client, uid, channel_id, ts, thread_ts):
+                        continue
 
-            paging = result.get("messages", {}).get("paging", {})
-            if page >= paging.get("pages", 1):
-                break
-            page += 1
+                    all_matches.append(match)
 
-        logger.info(f"Found {len(all_matches)} actionable mentions (after filtering bots + already replied)")
+                paging = result.get("messages", {}).get("paging", {})
+                if page >= paging.get("pages", 1):
+                    break
+                page += 1
+
+        logger.info(f"Found {len(all_matches)} actionable mentions + DMs (after filtering)")
 
         if dry_run or not all_matches:
             # In dry-run mode, still show triage results but serially (no drafts)

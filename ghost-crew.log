@@ -1,0 +1,96 @@
+INFO:chief_of_staff.app:Loaded configs for 1 users: ['Michelle Liu']
+INFO:chief_of_staff.agent:Using AWS Bedrock in us-east-1
+INFO:chief_of_staff.knowledge:Cloning https://github.com/Kikoff/dagster-etl ...
+INFO:chief_of_staff.knowledge:Indexed 3425 chunks from https://github.com/Kikoff/dagster-etl
+INFO:chief_of_staff.knowledge:Cloning https://github.com/Kikoff/data-monorepo ...
+INFO:chief_of_staff.knowledge:Indexed 429 chunks from https://github.com/Kikoff/data-monorepo
+INFO:apscheduler.scheduler:Adding job tentatively -- it will be properly scheduled when the scheduler starts
+INFO:apscheduler.scheduler:Adding job tentatively -- it will be properly scheduled when the scheduler starts
+INFO:apscheduler.scheduler:Added job "create_app.<locals>.poll_mentions" to job store "default"
+INFO:apscheduler.scheduler:Added job "create_app.<locals>.send_digests" to job store "default"
+INFO:apscheduler.scheduler:Scheduler started
+INFO:chief_of_staff.app:Dispatching 18 mentions to 10 agents...
+INFO:chief_of_staff.app:[Agent #3] Processing: Malo Le Magueresse in #passport
+INFO:chief_of_staff.app:[Agent #9] Processing: Emily Hills in #user-acquisition
+INFO:chief_of_staff.app:[Agent #5] Processing: Ashley An in #mpdm-ashley.an--malo--jananya--michelle.liu--mohammad-1
+INFO:chief_of_staff.app:[Agent #8] Processing: Hana Tadesse in #kikoff-stackadapt
+INFO:chief_of_staff.app:[Agent #1] Processing: Paul Yang in #mpdm-aniket--michelle.liu--paul.yang--rohan--kwan.yoon-1
+INFO:chief_of_staff.app:[Agent #6] Processing: Malo Le Magueresse in #kikoff-ae-de
+INFO:chief_of_staff.app:[Agent #2] Processing: Angel Zhou in #kikoff-ae-de
+INFO:chief_of_staff.app:[Agent #4] Processing: Angel Zhou in #kikoff-dingmei
+INFO:chief_of_staff.app:[Agent #10] Processing: Mohammad Abunimeh in #growth-marketing-ds
+INFO:chief_of_staff.app:[Agent #7] Processing: Malo Le Magueresse in #growth-marketing-ds
+ERROR:chief_of_staff.agent:Triage failed: could not resolve credentials from session
+ERROR:chief_of_staff.agent:Triage failed: could not resolve credentials from session
+ERROR:chief_of_staff.agent:Triage failed: could not resolve credentials from session
+ERROR:chief_of_staff.agent:Triage failed: could not resolve credentials from session
+INFO:chief_of_staff.app:[Agent #8] Drafting response for Hana Tadesse...
+ERROR:chief_of_staff.agent:Triage failed: could not resolve credentials from session
+ERROR:chief_of_staff.agent:Triage failed: could not resolve credentials from session
+ERROR:chief_of_staff.agent:Triage failed: could not resolve credentials from session
+INFO:chief_of_staff.app:[Agent #1] Drafting response for Paul Yang...
+ERROR:chief_of_staff.agent:Triage failed: could not resolve credentials from session
+ERROR:chief_of_staff.agent:Triage failed: could not resolve credentials from session
+INFO:chief_of_staff.app:[Agent #3] Drafting response for Malo Le Magueresse...
+INFO:chief_of_staff.app:[Agent #6] Drafting response for Malo Le Magueresse...
+ERROR:chief_of_staff.agent:Triage failed: could not resolve credentials from session
+INFO:chief_of_staff.app:[Agent #7] Drafting response for Malo Le Magueresse...
+INFO:chief_of_staff.app:[Agent #10] Drafting response for Mohammad Abunimeh...
+INFO:chief_of_staff.app:[Agent #5] Drafting response for Ashley An...
+INFO:chief_of_staff.app:[Agent #9] Drafting response for Emily Hills...
+INFO:chief_of_staff.app:[Agent #4] Drafting response for Angel Zhou...
+INFO:chief_of_staff.app:[Agent #2] Drafting response for Angel Zhou...
+ERROR:chief_of_staff.app:[Agent #1] Failed to generate draft: could not resolve credentials from session
+ERROR:chief_of_staff.app:[Agent #8] Failed to generate draft: could not resolve credentials from session
+ERROR:chief_of_staff.app:[Agent #7] Failed to generate draft: could not resolve credentials from session
+ERROR:chief_of_staff.app:[Agent #3] Failed to generate draft: could not resolve credentials from session
+ERROR:chief_of_staff.app:[Agent #6] Failed to generate draft: could not resolve credentials from session
+ERROR:chief_of_staff.app:[Agent #10] Failed to generate draft: could not resolve credentials from session
+ERROR:chief_of_staff.app:[Agent #9] Failed to generate draft: could not resolve credentials from session
+ERROR:chief_of_staff.app:[Agent #5] Failed to generate draft: could not resolve credentials from session
+ERROR:chief_of_staff.app:[Agent #4] Failed to generate draft: could not resolve credentials from session
+ERROR:chief_of_staff.app:[Agent #2] Failed to generate draft: could not resolve credentials from session
+INFO:chief_of_staff.app:[Agent #11] Processing: Sam Schneider in #grant-web
+ERROR:chief_of_staff.agent:Triage failed: could not resolve credentials from session
+INFO:chief_of_staff.app:[Agent #11] Drafting response for Sam Schneider...
+INFO:chief_of_staff.app:[Agent #12] Processing: Sam Schneider in #grant-web
+INFO:chief_of_staff.app:[Agent #14] Processing: Kate Carruth in #growth-marketing-ds
+INFO:chief_of_staff.app:[Agent #15] Processing: Malo Le Magueresse in #kikoff-ae-de
+INFO:chief_of_staff.app:[Agent #13] Processing: Abheek Sinha in #growth-marketing-ds
+INFO:chief_of_staff.app:[Agent #17] Processing: Jason Situ in #data
+INFO:chief_of_staff.app:[Agent #16] Processing: Jue Hou in #team-huddle-prep
+ERROR:chief_of_staff.agent:Triage failed: could not resolve credentials from session
+INFO:chief_of_staff.app:[Agent #12] Drafting response for Sam Schneider...
+ERROR:chief_of_staff.agent:Triage failed: could not resolve credentials from session
+ERROR:chief_of_staff.agent:Triage failed: could not resolve credentials from session
+ERROR:chief_of_staff.agent:Triage failed: could not resolve credentials from session
+INFO:chief_of_staff.app:[Agent #13] Drafting response for Abheek Sinha...
+INFO:chief_of_staff.app:[Agent #14] Drafting response for Kate Carruth...
+INFO:chief_of_staff.app:[Agent #17] Drafting response for Jason Situ...
+INFO:chief_of_staff.app:[Agent #18] Processing: Sam Schneider in #growth-marketing-ds
+ERROR:chief_of_staff.agent:Triage failed: could not resolve credentials from session
+INFO:chief_of_staff.app:[Agent #15] Drafting response for Malo Le Magueresse...
+ERROR:chief_of_staff.agent:Triage failed: could not resolve credentials from session
+INFO:chief_of_staff.app:[Agent #16] Drafting response for Jue Hou...
+ERROR:chief_of_staff.agent:Triage failed: could not resolve credentials from session
+INFO:chief_of_staff.app:[Agent #18] Drafting response for Sam Schneider...
+ERROR:chief_of_staff.app:[Agent #11] Failed to generate draft: could not resolve credentials from session
+ERROR:chief_of_staff.app:[Agent #13] Failed to generate draft: could not resolve credentials from session
+ERROR:chief_of_staff.app:[Agent #14] Failed to generate draft: could not resolve credentials from session
+ERROR:chief_of_staff.app:[Agent #12] Failed to generate draft: could not resolve credentials from session
+ERROR:chief_of_staff.app:[Agent #17] Failed to generate draft: could not resolve credentials from session
+ERROR:chief_of_staff.app:[Agent #15] Failed to generate draft: could not resolve credentials from session
+ERROR:chief_of_staff.app:[Agent #16] Failed to generate draft: could not resolve credentials from session
+ERROR:chief_of_staff.app:[Agent #18] Failed to generate draft: could not resolve credentials from session
+INFO:chief_of_staff.app::checkered_flag: *Ghost Crew batch complete* — 2.2s
+:white_check_mark: 0 drafted | :see_no_evil: 0 skipped | :warning: 18 errors
+INFO:chief_of_staff.app:Ghost Crew is running!
+INFO:slack_bolt.App:A new session has been established (session id: b07ea9d7-f2c7-45ef-850f-898d3777899b)
+INFO:slack_bolt.App:⚡️ Bolt app is running!
+INFO:slack_bolt.App:Starting to receive messages from a new connection (session id: b07ea9d7-f2c7-45ef-850f-898d3777899b)
+INFO:apscheduler.executors.default:Running job "create_app.<locals>.poll_mentions (trigger: interval[0:00:30], next run at: 2026-04-29 23:57:29 PDT)" (scheduled at 2026-04-29 23:57:29.536055-07:00)
+INFO:apscheduler.executors.default:Job "create_app.<locals>.poll_mentions (trigger: interval[0:00:30], next run at: 2026-04-29 23:57:59 PDT)" executed successfully
+INFO:apscheduler.executors.default:Running job "create_app.<locals>.poll_mentions (trigger: interval[0:00:30], next run at: 2026-04-29 23:58:29 PDT)" (scheduled at 2026-04-29 23:57:59.536055-07:00)
+INFO:apscheduler.executors.default:Job "create_app.<locals>.poll_mentions (trigger: interval[0:00:30], next run at: 2026-04-29 23:58:29 PDT)" executed successfully
+INFO:apscheduler.executors.default:Running job "create_app.<locals>.poll_mentions (trigger: interval[0:00:30], next run at: 2026-04-29 23:58:59 PDT)" (scheduled at 2026-04-29 23:58:29.536055-07:00)
+INFO:apscheduler.executors.default:Job "create_app.<locals>.poll_mentions (trigger: interval[0:00:30], next run at: 2026-04-29 23:58:59 PDT)" executed successfully
