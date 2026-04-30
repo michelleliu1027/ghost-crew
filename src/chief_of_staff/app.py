@@ -3,6 +3,7 @@
 import logging
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -157,6 +158,7 @@ def create_app() -> App:
                 continue
 
             matches = result.get("messages", {}).get("matches", [])
+            pending = []
             for match in matches:
                 ts = match.get("ts", "")
                 channel_info = match.get("channel", {})
@@ -191,80 +193,13 @@ def create_app() -> App:
                 if _user_already_replied(client, uid, channel_id, ts, match.get("thread_ts")):
                     continue
 
-                # Get sender name
-                try:
-                    sender_info = bot_client.users_info(user=sender)
-                    sender_name = sender_info["user"]["real_name"]
-                except Exception:
-                    sender_name = sender
+                pending.append(match)
 
-                # Get channel name
-                channel_name = channel_info.get("name", channel_id) if isinstance(channel_info, dict) else channel_id
-
-                logger.info(f"New mention for {cfg.name} from {sender_name} in #{channel_name}")
-
-                # Triage: is this worth replying to?
-                if not agent.triage(cfg, text, sender_name, channel_name):
-                    logger.info(f"  Skipped (triage: not worth replying)")
-                    # Log skipped message to review channel as FYI
-                    msg_ts_link = ts.replace(".", "")
-                    msg_link = f"https://slack.com/archives/{channel_id}/p{msg_ts_link}"
-                    try:
-                        bot_client.chat_postMessage(
-                            channel=cfg.review_channel_id,
-                            text=f":see_no_evil: Skipped — <@{sender}> in <#{channel_id}> | <{msg_link}|View>\n>>> {text[:300]}",
-                        )
-                    except Exception:
-                        pass
-                    continue
-
-                # Get thread context
-                thread_ts = match.get("thread_ts")
-                thread_context = None
-                if thread_ts:
-                    try:
-                        replies = client.conversations_replies(
-                            channel=channel_id, ts=thread_ts, limit=10
-                        )
-                        thread_context = [
-                            f"{m.get('user', 'unknown')}: {m.get('text', '')}"
-                            for m in replies.get("messages", [])[:-1]
-                        ]
-                    except Exception:
-                        pass
-
-                # Generate draft
-                try:
-                    draft = agent.generate_draft(
-                        user_config=cfg,
-                        incoming_message=text,
-                        sender_name=sender_name,
-                        channel_name=channel_name,
-                        thread_context=thread_context,
-                    )
-                except Exception as e:
-                    logger.error(f"Failed to generate draft: {e}")
-                    continue
-
-                # Post to review queue
-                review_queue.post_draft(
-                    review_channel_id=cfg.review_channel_id,
-                    original_channel=channel_id,
-                    original_ts=ts,
-                    original_thread_ts=thread_ts,
-                    sender_name=sender,
-                    original_message=text,
-                    draft_response=draft,
-                    owner_slack_id=uid,
-                )
-
-                # Track
-                tracker.log_request(
-                    doc_id=cfg.tracking_doc_id,
-                    sender=sender_name,
-                    channel=channel_name,
-                    message=text,
-                    draft=draft,
+            # Process pending mentions in parallel
+            if pending:
+                _process_mentions_parallel(
+                    pending, cfg, uid, bot_client, client, agent,
+                    review_queue, tracker,
                 )
 
         # Prevent seen_messages from growing forever
@@ -297,6 +232,125 @@ def create_app() -> App:
     poll_mentions()
 
     return app
+
+
+def _process_single_mention(
+    match: dict,
+    cfg,
+    uid: str,
+    bot_client: WebClient,
+    user_client: WebClient,
+    agent: DraftAgent,
+    review_queue: ReviewQueue,
+    tracker: RequestTracker,
+):
+    """Process a single mention: triage → draft → post to review."""
+    sender = match.get("user", "") or match.get("username", "")
+    text = match.get("text", "")
+    ts = match.get("ts", "")
+    channel_info = match.get("channel", {})
+    channel_id = channel_info.get("id", "") if isinstance(channel_info, dict) else ""
+    channel_name = channel_info.get("name", channel_id) if isinstance(channel_info, dict) else channel_id
+    thread_ts = match.get("thread_ts")
+
+    try:
+        sender_info = bot_client.users_info(user=sender)
+        sender_name = sender_info["user"]["real_name"]
+    except Exception:
+        sender_name = sender
+
+    logger.info(f"Processing mention from {sender_name} in #{channel_name}")
+
+    # Triage
+    if not agent.triage(cfg, text, sender_name, channel_name):
+        logger.info(f"  Skipped (triage: not worth replying)")
+        msg_ts_link = ts.replace(".", "")
+        msg_link = f"https://slack.com/archives/{channel_id}/p{msg_ts_link}"
+        try:
+            bot_client.chat_postMessage(
+                channel=cfg.review_channel_id,
+                text=f":see_no_evil: Skipped — <@{sender}> in <#{channel_id}> | <{msg_link}|View>\n>>> {text[:300]}",
+            )
+        except Exception:
+            pass
+        return
+
+    # Get thread context
+    thread_context = None
+    if thread_ts:
+        try:
+            replies = user_client.conversations_replies(
+                channel=channel_id, ts=thread_ts, limit=10
+            )
+            thread_context = [
+                f"{m.get('user', 'unknown')}: {m.get('text', '')}"
+                for m in replies.get("messages", [])[:-1]
+            ]
+        except Exception:
+            pass
+
+    # Generate draft
+    try:
+        draft = agent.generate_draft(
+            user_config=cfg,
+            incoming_message=text,
+            sender_name=sender_name,
+            channel_name=channel_name,
+            thread_context=thread_context,
+        )
+    except Exception as e:
+        logger.error(f"Failed to generate draft: {e}")
+        return
+
+    # Post to review queue
+    review_queue.post_draft(
+        review_channel_id=cfg.review_channel_id,
+        original_channel=channel_id,
+        original_ts=ts,
+        original_thread_ts=thread_ts,
+        sender_name=sender,
+        original_message=text,
+        draft_response=draft,
+        owner_slack_id=uid,
+    )
+
+    # Track
+    tracker.log_request(
+        doc_id=cfg.tracking_doc_id,
+        sender=sender_name,
+        channel=channel_name,
+        message=text,
+        draft=draft,
+    )
+
+
+def _process_mentions_parallel(
+    matches: list,
+    cfg,
+    uid: str,
+    bot_client: WebClient,
+    user_client: WebClient,
+    agent: DraftAgent,
+    review_queue: ReviewQueue,
+    tracker: RequestTracker,
+    max_workers: int = 10,
+):
+    """Process multiple mentions in parallel."""
+    logger.info(f"Processing {len(matches)} mentions in parallel (max {max_workers} workers)")
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(
+                _process_single_mention,
+                match, cfg, uid, bot_client, user_client, agent, review_queue, tracker,
+            ): match
+            for match in matches
+        }
+        for future in as_completed(futures):
+            try:
+                future.result()
+            except Exception as e:
+                logger.error(f"Worker failed: {e}")
 
 
 def _user_already_replied(client: WebClient, user_id: str, channel_id: str, msg_ts: str, thread_ts: str | None) -> bool:

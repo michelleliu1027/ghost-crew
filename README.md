@@ -181,9 +181,12 @@ python scripts/backfill.py
 # Customize
 python scripts/backfill.py --days 7
 python scripts/backfill.py --user "Your Name" --days 14
+
+# Control parallelism (default: 10 workers)
+python scripts/backfill.py --workers 5
 ```
 
-Only messages you **haven't already replied to** will get drafts — so it won't spam your review channel with stuff you've already handled.
+Backfill processes mentions **in parallel** — 10 mentions get triaged and drafted simultaneously by default. Only messages you **haven't already replied to** will get drafts.
 
 ## Smart filtering
 
@@ -271,6 +274,36 @@ ghost-crew/
     ├── reviewer.py       # review channel posting + approval parsing
     └── tracker.py        # Google Docs logging + digest generation
 ```
+
+## Roadmap
+
+### Code Agent (next up)
+
+When someone requests a pipeline change or code fix, Ghost Crew could go beyond drafting a reply — it could write the code too.
+
+```
+@you "hey can you add a new column to the weekly_conversions table?"
+        |
+        v
+AI Triage classifies as CODE_CHANGE (vs QUESTION)
+        |
+        v
+Agent clones the repo, writes the code, opens a PR
+        |
+        v
+Draft reply in review channel: "Done — PR #142: Add column to weekly_conversions"
+        |
+        v
+You review the PR + the Slack reply together
+```
+
+Intent classification would route requests to the right handler:
+
+| Intent | Action |
+|--------|--------|
+| `QUESTION` | Draft a Slack reply (current behavior) |
+| `CODE_CHANGE` | Clone repo → write code → open PR → draft reply with PR link |
+| `DATA_REQUEST` | Run SQL → return results → draft reply with data |
 
 ## License
 
