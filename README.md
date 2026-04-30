@@ -194,11 +194,15 @@ Every incoming @mention goes through three layers of filtering before a draft is
 
 1. **Bot filter** — messages from Slack bots (automated alerts, app notifications) are ignored
 2. **Already replied** — if you already responded in the thread, no draft is needed
-3. **AI triage** — Claude Sonnet quickly classifies the message as `REPLY` or `SKIP`:
-   - Work requests, data questions, cross-team asks → **REPLY** (draft generated)
-   - Friend banter, social chat, FYI-only tags, "thanks" messages → **SKIP**
+3. **AI triage** — Claude classifies each message as `REPLY` or `SKIP` **with a reason**:
+   - `REPLY: work request asking for help with Grant data` → draft generated
+   - `SKIP: casual chat, no action needed` → skipped
+   - `SKIP: FYI tag for visibility, no response needed` → skipped
 
-Skipped messages still show up in your review channel as a one-liner with a link, so you never lose visibility — but your queue stays clean.
+Triage reasons are visible in:
+- **Terminal logs** — full detail for debugging
+- **Review channel** — skipped messages show the reason so you understand why
+- **Backfill dry-run** — preview triage decisions before generating any drafts
 
 ## Reviewing drafts
 
