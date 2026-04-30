@@ -25,6 +25,19 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+def _user_already_replied(client: WebClient, user_id: str, channel_id: str, msg_ts: str, thread_ts: str | None) -> bool:
+    """Check if the user has already replied in this thread."""
+    try:
+        root_ts = thread_ts or msg_ts
+        replies = client.conversations_replies(channel=channel_id, ts=root_ts, limit=50)
+        for msg in replies.get("messages", []):
+            if msg.get("user") == user_id and float(msg.get("ts", 0)) > float(msg_ts):
+                return True
+        return False
+    except Exception:
+        return False
+
+
 def backfill(days: int = 30, target_user: str | None = None, dry_run: bool = False):
     """Search last N days of @mentions and generate drafts."""
 
@@ -103,6 +116,10 @@ def backfill(days: int = 30, target_user: str | None = None, dry_run: bool = Fal
 
                 # Skip bot messages
                 if match.get("bot_id"):
+                    continue
+
+                # Skip if user already replied
+                if _user_already_replied(user_client, uid, channel_id, ts, thread_ts):
                     continue
 
                 # Get sender name

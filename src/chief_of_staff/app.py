@@ -178,6 +178,10 @@ def create_app() -> App:
                 if match.get("bot_id"):
                     continue
 
+                # Skip if user already replied in this thread
+                if _user_already_replied(client, uid, channel_id, ts, match.get("thread_ts")):
+                    continue
+
                 logger.info(f"New mention for {cfg.name} from {sender} in {channel_id}")
 
                 # Get sender name
@@ -269,6 +273,28 @@ def create_app() -> App:
     poll_mentions()
 
     return app
+
+
+def _user_already_replied(client: WebClient, user_id: str, channel_id: str, msg_ts: str, thread_ts: str | None) -> bool:
+    """Check if the user has already replied in this thread/conversation."""
+    try:
+        # If the message is in a thread, check thread replies
+        root_ts = thread_ts or msg_ts
+        replies = client.conversations_replies(
+            channel=channel_id, ts=root_ts, limit=50
+        )
+        messages = replies.get("messages", [])
+        # Check if any reply after the mention is from the user
+        for msg in messages:
+            if msg.get("user") == user_id and msg.get("ts") != root_ts:
+                # User replied in this thread
+                return True
+            if msg.get("user") == user_id and float(msg.get("ts", 0)) > float(msg_ts):
+                return True
+        return False
+    except Exception:
+        # If we can't check, don't skip (better to draft than miss)
+        return False
 
 
 def _send_as_user(user_id: str, channel: str, thread_ts: str, text: str):
