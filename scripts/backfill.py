@@ -317,36 +317,34 @@ def backfill(days: int = 30, target_user: str | None = None, dry_run: bool = Fal
         except Exception as e:
             logger.error(f"Failed to post summary: {e}")
 
-        if summary_ts:
-            for i, r in enumerate(drafted, 1):
-                orig = r['text'][:150].replace('\n', ' ')
-                if len(r['text']) > 150:
-                    orig += "..."
+        for i, r in enumerate(drafted, 1):
+            orig = r['text'][:150].replace('\n', ' ')
+            if len(r['text']) > 150:
+                orig += "..."
 
-                draft_text = (
-                    f":envelope: *#{i}* — <@{r['sender']}> in <#{r['channel_id']}> | <{r['msg_link']}|View original>\n"
-                    f"_{orig}_\n\n"
-                    f":speech_balloon: *Draft:*\n{r['draft']}\n\n"
-                    f":white_check_mark: send | :x: discard"
-                )
-                try:
-                    bot_client.chat_postMessage(
-                        channel=cfg.review_channel_id,
-                        thread_ts=summary_ts,
-                        text=draft_text,
-                        metadata={
-                            "event_type": "draft_review",
-                            "event_payload": {
-                                "channel": r["channel_id"],
-                                "ts": r["ts"],
-                                "thread_ts": r.get("thread_ts") or r["ts"],
-                                "owner": uid,
-                            },
+            draft_text = (
+                f":envelope: *#{i}* — <@{r['sender']}> in <#{r['channel_id']}> | <{r['msg_link']}|View original>\n"
+                f"_{orig}_\n\n"
+                f":speech_balloon: *Draft:*\n{r['draft']}\n\n"
+                f":white_check_mark: send | :x: discard"
+            )
+            try:
+                bot_client.chat_postMessage(
+                    channel=cfg.review_channel_id,
+                    text=draft_text,
+                    metadata={
+                        "event_type": "draft_review",
+                        "event_payload": {
+                            "channel": r["channel_id"],
+                            "ts": r["ts"],
+                            "thread_ts": r.get("thread_ts") or r["ts"],
+                            "owner": uid,
                         },
-                    )
-                except Exception as e:
-                    logger.error(f"Failed to post draft in thread: {e}")
-                time.sleep(0.5)
+                    },
+                )
+            except Exception as e:
+                logger.error(f"Failed to post draft: {e}")
+            time.sleep(0.5)
 
         logger.info(
             f"Done! {cfg.name}: {len(drafted)} drafted, {len(skipped)} skipped, {errors} errors"

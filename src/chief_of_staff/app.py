@@ -426,42 +426,39 @@ def _process_mentions_parallel(
     except Exception as e:
         logger.error(f"Failed to post summary: {e}")
 
-    # Post each draft as a thread reply under the summary
-    if summary_ts:
-        for i, r in enumerate(drafted_results, 1):
-            msg_ts_link = r["ts"].replace(".", "")
-            thread_suffix = f"?thread_ts={r['thread_ts']}&cid={r['channel_id']}" if r.get("thread_ts") else ""
-            msg_link = f"https://slack.com/archives/{r['channel_id']}/p{msg_ts_link}{thread_suffix}"
+    # Post each draft as a separate message in the channel
+    for i, r in enumerate(drafted_results, 1):
+        msg_ts_link = r["ts"].replace(".", "")
+        thread_suffix = f"?thread_ts={r['thread_ts']}&cid={r['channel_id']}" if r.get("thread_ts") else ""
+        msg_link = f"https://slack.com/archives/{r['channel_id']}/p{msg_ts_link}{thread_suffix}"
 
-            # Truncate original message
-            orig = r['text'][:150].replace('\n', ' ')
-            if len(r['text']) > 150:
-                orig += "..."
+        orig = r['text'][:150].replace('\n', ' ')
+        if len(r['text']) > 150:
+            orig += "..."
 
-            draft_text = (
-                f":envelope: *#{i}* — <@{r['sender']}> in <#{r['channel_id']}> | <{msg_link}|View original>\n"
-                f"_{orig}_\n\n"
-                f":speech_balloon: *Draft:*\n{r['draft']}\n\n"
-                f":white_check_mark: send | :x: discard"
-            )
+        draft_text = (
+            f":envelope: *#{i}* — <@{r['sender']}> in <#{r['channel_id']}> | <{msg_link}|View original>\n"
+            f"_{orig}_\n\n"
+            f":speech_balloon: *Draft:*\n{r['draft']}\n\n"
+            f":white_check_mark: send | :x: discard"
+        )
 
-            try:
-                bot_client.chat_postMessage(
-                    channel=cfg.review_channel_id,
-                    thread_ts=summary_ts,
-                    text=draft_text,
-                    metadata={
-                        "event_type": "draft_review",
-                        "event_payload": {
-                            "channel": r["channel_id"],
-                            "ts": r["ts"],
-                            "thread_ts": r.get("thread_ts") or r["ts"],
-                            "owner": uid,
-                        },
+        try:
+            bot_client.chat_postMessage(
+                channel=cfg.review_channel_id,
+                text=draft_text,
+                metadata={
+                    "event_type": "draft_review",
+                    "event_payload": {
+                        "channel": r["channel_id"],
+                        "ts": r["ts"],
+                        "thread_ts": r.get("thread_ts") or r["ts"],
+                        "owner": uid,
                     },
-                )
-            except Exception as e:
-                logger.error(f"Failed to post draft in thread: {e}")
+                },
+            )
+        except Exception as e:
+            logger.error(f"Failed to post draft: {e}")
 
             tracker.log_request(
                 doc_id=cfg.tracking_doc_id,
