@@ -21,7 +21,7 @@ If you're the kind of person who gets @mentioned 30 times a day across random Sl
 Someone @mentions you or DMs you on Slack
         |
         v
-Ghost Crew polls every 30s: @mentions across all channels + all DMs
+Every day at 5pm, Ghost Crew collects today's @mentions + DMs
         |
         v
 Filter: skip bots, skip messages you already replied to
@@ -291,6 +291,18 @@ python scripts/reindex.py "Your Name"  # specific user
 ```
 
 Supported: `.py` `.sql` `.md` `.yaml` `.yml` `.toml` `.json` `.txt` `.sh` `.tf`
+
+## Scheduling
+
+Ghost Crew runs on two schedules:
+
+- **Daily batch (5pm)** — collects all @mentions + DMs from today, triages, and generates drafts. You review them once at end of day.
+- **Weekly digest (Friday 5pm)** — summary of everything handled that week.
+
+Both are configurable via environment variables:
+```bash
+DAILY_BATCH_HOUR=17    # hour in 24h format (default: 17 = 5pm)
+```
 
 ## Weekly digest
 

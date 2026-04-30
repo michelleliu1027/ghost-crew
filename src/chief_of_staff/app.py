@@ -138,47 +138,45 @@ def create_app() -> App:
     # --- Polling: search for @mentions using user token ---
     scheduler = BackgroundScheduler()
 
-    def poll_mentions():
-        """Search for recent @mentions and DMs of each registered user (last 2 min only)."""
-        from datetime import datetime, timedelta, timezone
-        after = (datetime.now(timezone.utc) - timedelta(minutes=2)).strftime("%Y-%m-%d")
+    def daily_batch():
+        """Daily batch: search today's @mentions + DMs, triage, and generate drafts."""
+        from datetime import datetime, timezone
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        logger.info(f"Running daily batch for {today}...")
 
         for uid, cfg in configs.items():
             client = user_clients.get(uid)
             if not client:
                 continue
 
-            # Run two searches: @mentions across all channels + DMs (today only)
+            # Search today's @mentions + DMs
             all_matches = []
+            seen_keys = set()
             for base_query in [f"<@{uid}>", "to:me"]:
-                query = f"{base_query} after:{after}"
+                query = f"{base_query} after:{today}"
                 try:
                     result = client.search_messages(
                         query=query,
                         sort="timestamp",
                         sort_dir="desc",
-                        count=20,
+                        count=100,
                     )
                     all_matches.extend(result.get("messages", {}).get("matches", []))
                 except Exception as e:
                     logger.error(f"Failed to search ({query}) for {cfg.name}: {e}")
 
-            # Filter to only messages in the last 2 minutes
-            cutoff = time.time() - 120
-            matches = [m for m in all_matches if float(m.get("ts", "0")) > cutoff]
             pending = []
-            for match in matches:
+            for match in all_matches:
                 ts = match.get("ts", "")
                 channel_info = match.get("channel", {})
                 channel_id = channel_info.get("id", "") if isinstance(channel_info, dict) else ""
                 sender = match.get("user", "") or match.get("username", "")
-                text = match.get("text", "")
 
-                # Skip if already processed
+                # Deduplicate
                 msg_key = f"{channel_id}:{ts}"
-                if msg_key in seen_messages:
+                if msg_key in seen_keys:
                     continue
-                seen_messages.add(msg_key)
+                seen_keys.add(msg_key)
 
                 # Skip own messages
                 if sender == uid:
@@ -188,7 +186,7 @@ def create_app() -> App:
                 if match.get("bot_id") or match.get("subtype") == "bot_message":
                     continue
 
-                # Skip bot users (check via users.info)
+                # Skip bot users
                 if sender:
                     try:
                         user_info = bot_client.users_info(user=sender)
@@ -197,28 +195,25 @@ def create_app() -> App:
                     except Exception:
                         pass
 
-                # Skip if user already replied in this thread
+                # Skip if user already replied
                 if _user_already_replied(client, uid, channel_id, ts, match.get("thread_ts")):
                     continue
 
                 pending.append(match)
 
-            # Process pending mentions in parallel
+            logger.info(f"Daily batch for {cfg.name}: {len(pending)} messages to process")
+
             if pending:
                 _process_mentions_parallel(
                     pending, cfg, uid, bot_client, client, agent,
                     review_queue, tracker,
                 )
 
-        # Prevent seen_messages from growing forever
-        if len(seen_messages) > 10000:
-            seen_messages.clear()
+    # Daily batch: default 5pm, configurable via DAILY_BATCH_HOUR
+    batch_hour = int(os.environ.get("DAILY_BATCH_HOUR", "17"))
+    scheduler.add_job(daily_batch, "cron", hour=batch_hour, id="daily_batch")
 
-    # Poll every 30 seconds
-    poll_interval = int(os.environ.get("POLL_INTERVAL", "30"))
-    scheduler.add_job(poll_mentions, "interval", seconds=poll_interval, id="poll_mentions")
-
-    # Weekly digest
+    # Weekly digest: every Friday 5pm
     def send_digests():
         for uid, cfg in configs.items():
             digest_text = digest_store.generate_digest_text()
@@ -235,9 +230,6 @@ def create_app() -> App:
 
     scheduler.add_job(send_digests, "cron", day_of_week="fri", hour=17)
     scheduler.start()
-
-    # Run initial poll immediately
-    poll_mentions()
 
     return app
 
