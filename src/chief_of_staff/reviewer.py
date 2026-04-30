@@ -32,12 +32,17 @@ class ReviewQueue:
             "owner": owner_slack_id,
         }
 
+        # Build permalink to original message
+        msg_ts_link = original_ts.replace(".", "")
+        thread_suffix = f"?thread_ts={original_thread_ts}&cid={original_channel}" if original_thread_ts else ""
+        msg_link = f"https://slack.com/archives/{original_channel}/p{msg_ts_link}{thread_suffix}"
+
         blocks = [
             {
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"*New request from <@{sender_name}>* in <#{original_channel}>",
+                    "text": f"*New request from <@{sender_name}>* in <#{original_channel}> | <{msg_link}|View original>",
                 },
             },
             {
