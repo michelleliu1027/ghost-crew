@@ -1,8 +1,13 @@
-"""Main application: Slack event listener + review queue + digest."""
+"""Main application: poll for @mentions + review queue + digest."""
 
 import logging
 import os
+import time
 from pathlib import Path
+
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from slack_bolt import App
@@ -20,13 +25,14 @@ logger = logging.getLogger(__name__)
 
 # --- Global state ---
 configs: dict[str, UserConfig] = {}
-user_clients: dict[str, WebClient] = {}  # slack_user_id -> WebClient with user token
+user_clients: dict[str, WebClient] = {}
 kb: KnowledgeBase
 agent: DraftAgent
 review_queue: ReviewQueue
 tracker: RequestTracker
 digest_store: DigestStore
 scheduler: BackgroundScheduler
+seen_messages: set[str] = set()  # track already-processed message timestamps
 
 
 def create_app() -> App:
@@ -65,23 +71,15 @@ def create_app() -> App:
             except Exception as e:
                 logger.error(f"Failed to index {repo} for {cfg.name}: {e}")
 
-    # --- Event: someone mentions a registered user ---
+    # --- Event: reaction on review channel (approve/discard) ---
     @app.event("app_mention")
     def handle_mention(event, say):
-        _handle_incoming(event, bot_client)
+        pass  # handled by polling instead
 
     @app.event("message")
     def handle_message(event, say):
-        # Only handle DMs (im) and group DMs (mpim)
-        channel_type = event.get("channel_type")
-        if channel_type not in ("im", "mpim"):
-            return
-        # Ignore bot messages
-        if event.get("bot_id") or event.get("subtype"):
-            return
-        _handle_incoming(event, bot_client)
+        pass  # handled by polling instead
 
-    # --- Event: reaction on review channel (approve/discard) ---
     @app.event("reaction_added")
     def handle_reaction(event):
         reaction = event.get("reaction", "")
@@ -90,7 +88,6 @@ def create_app() -> App:
         message_ts = item.get("ts", "")
         reactor = event.get("user", "")
 
-        # Check if this reaction is in a review channel for any user
         target_config = None
         for uid, cfg in configs.items():
             if cfg.review_channel_id == channel and uid == reactor:
@@ -100,7 +97,6 @@ def create_app() -> App:
         if not target_config:
             return
 
-        # Fetch the review message to get metadata
         try:
             result = bot_client.conversations_history(
                 channel=channel, latest=message_ts, inclusive=True, limit=1
@@ -121,14 +117,12 @@ def create_app() -> App:
         owner_id = metadata["owner"]
 
         if reaction == "white_check_mark":
-            # Approve: send the draft as the user
             draft_text = extract_draft_from_blocks(review_msg.get("blocks", []))
             _send_as_user(owner_id, orig_channel, thread_ts, draft_text)
             digest_store.add(
                 sender=reactor, channel=orig_channel,
                 message=draft_text, status="approved",
             )
-            # Add checkmark to review msg
             try:
                 bot_client.reactions_add(channel=channel, name="robot_face", timestamp=message_ts)
             except Exception:
@@ -140,9 +134,120 @@ def create_app() -> App:
                 message="(discarded)", status="discarded",
             )
 
-    # --- Schedule weekly digest ---
+    # --- Polling: search for @mentions using user token ---
     scheduler = BackgroundScheduler()
 
+    def poll_mentions():
+        """Search for recent @mentions of each registered user."""
+        for uid, cfg in configs.items():
+            client = user_clients.get(uid)
+            if not client:
+                continue
+
+            try:
+                # Search for messages mentioning this user in the last 2 minutes
+                result = client.search_messages(
+                    query=f"<@{uid}>",
+                    sort="timestamp",
+                    sort_dir="desc",
+                    count=20,
+                )
+            except Exception as e:
+                logger.error(f"Failed to search mentions for {cfg.name}: {e}")
+                continue
+
+            matches = result.get("messages", {}).get("matches", [])
+            for match in matches:
+                ts = match.get("ts", "")
+                channel_info = match.get("channel", {})
+                channel_id = channel_info.get("id", "") if isinstance(channel_info, dict) else ""
+                sender = match.get("user", "") or match.get("username", "")
+                text = match.get("text", "")
+
+                # Skip if already processed
+                msg_key = f"{channel_id}:{ts}"
+                if msg_key in seen_messages:
+                    continue
+                seen_messages.add(msg_key)
+
+                # Skip own messages
+                if sender == uid:
+                    continue
+
+                # Skip messages from bots
+                if match.get("bot_id"):
+                    continue
+
+                logger.info(f"New mention for {cfg.name} from {sender} in {channel_id}")
+
+                # Get sender name
+                try:
+                    sender_info = bot_client.users_info(user=sender)
+                    sender_name = sender_info["user"]["real_name"]
+                except Exception:
+                    sender_name = sender
+
+                # Get channel name
+                channel_name = channel_info.get("name", channel_id) if isinstance(channel_info, dict) else channel_id
+
+                # Get thread context
+                thread_ts = match.get("thread_ts")
+                thread_context = None
+                if thread_ts:
+                    try:
+                        replies = client.conversations_replies(
+                            channel=channel_id, ts=thread_ts, limit=10
+                        )
+                        thread_context = [
+                            f"{m.get('user', 'unknown')}: {m.get('text', '')}"
+                            for m in replies.get("messages", [])[:-1]
+                        ]
+                    except Exception:
+                        pass
+
+                # Generate draft
+                try:
+                    draft = agent.generate_draft(
+                        user_config=cfg,
+                        incoming_message=text,
+                        sender_name=sender_name,
+                        channel_name=channel_name,
+                        thread_context=thread_context,
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to generate draft: {e}")
+                    continue
+
+                # Post to review queue
+                review_queue.post_draft(
+                    review_channel_id=cfg.review_channel_id,
+                    original_channel=channel_id,
+                    original_ts=ts,
+                    original_thread_ts=thread_ts,
+                    sender_name=sender,
+                    original_message=text,
+                    draft_response=draft,
+                    owner_slack_id=uid,
+                )
+
+                # Track
+                tracker.log_request(
+                    doc_id=cfg.tracking_doc_id,
+                    sender=sender_name,
+                    channel=channel_name,
+                    message=text,
+                    draft=draft,
+                )
+
+        # Prevent seen_messages from growing forever
+        if len(seen_messages) > 10000:
+            seen_messages.clear()
+
+    # Poll every 30 seconds
+    poll_interval = int(os.environ.get("POLL_INTERVAL", "30"))
+    scheduler.add_job(poll_mentions, "interval", seconds=poll_interval, id="poll_mentions")
+
+    # Weekly digest
     def send_digests():
         for uid, cfg in configs.items():
             digest_text = digest_store.generate_digest_text()
@@ -157,112 +262,13 @@ def create_app() -> App:
             except Exception as e:
                 logger.error(f"Failed to send digest to {cfg.name}: {e}")
 
-    # Default: every Friday 5pm
     scheduler.add_job(send_digests, "cron", day_of_week="fri", hour=17)
     scheduler.start()
 
+    # Run initial poll immediately
+    poll_mentions()
+
     return app
-
-
-def _handle_incoming(event: dict, bot_client: WebClient):
-    """Process an incoming message that mentions or DMs a registered user."""
-    text = event.get("text", "")
-    sender = event.get("user", "")
-    channel = event.get("channel", "")
-    ts = event.get("ts", "")
-    thread_ts = event.get("thread_ts")
-
-    # Determine which registered user was mentioned or DM'd
-    target_config = None
-
-    # Check for @mentions in the text
-    for uid, cfg in configs.items():
-        if f"<@{uid}>" in text:
-            target_config = cfg
-            break
-
-    # For DMs, check if any registered user is the recipient
-    if not target_config and event.get("channel_type") in ("im", "mpim"):
-        # In DMs, we need to check who the DM is with
-        # The bot receives all DMs, but we route based on configured users
-        for uid, cfg in configs.items():
-            # For DMs, we check if the channel is a DM with this user
-            # This is handled by checking membership
-            try:
-                members = bot_client.conversations_members(channel=channel)
-                if uid in members.get("members", []):
-                    target_config = cfg
-                    break
-            except Exception:
-                continue
-
-    if not target_config:
-        return
-
-    # Don't respond to the user's own messages
-    if sender == target_config.slack_user_id:
-        return
-
-    # Get sender name
-    try:
-        sender_info = bot_client.users_info(user=sender)
-        sender_name = sender_info["user"]["real_name"]
-    except Exception:
-        sender_name = sender
-
-    # Get channel name
-    try:
-        channel_info = bot_client.conversations_info(channel=channel)
-        channel_name = channel_info["channel"]["name"]
-    except Exception:
-        channel_name = channel
-
-    # Get thread context if in a thread
-    thread_context = None
-    if thread_ts:
-        try:
-            replies = bot_client.conversations_replies(channel=channel, ts=thread_ts, limit=10)
-            thread_context = [
-                f"{m.get('user', 'unknown')}: {m.get('text', '')}"
-                for m in replies.get("messages", [])[:-1]  # exclude the current message
-            ]
-        except Exception:
-            pass
-
-    # Generate draft
-    logger.info(f"Generating draft for {target_config.name} — request from {sender_name}")
-    try:
-        draft = agent.generate_draft(
-            user_config=target_config,
-            incoming_message=text,
-            sender_name=sender_name,
-            channel_name=channel_name,
-            thread_context=thread_context,
-        )
-    except Exception as e:
-        logger.error(f"Failed to generate draft: {e}")
-        return
-
-    # Post to review queue
-    review_queue.post_draft(
-        review_channel_id=target_config.review_channel_id,
-        original_channel=channel,
-        original_ts=ts,
-        original_thread_ts=thread_ts,
-        sender_name=sender,
-        original_message=text,
-        draft_response=draft,
-        owner_slack_id=target_config.slack_user_id,
-    )
-
-    # Track the request
-    tracker.log_request(
-        doc_id=target_config.tracking_doc_id,
-        sender=sender_name,
-        channel=channel_name,
-        message=text,
-        draft=draft,
-    )
 
 
 def _send_as_user(user_id: str, channel: str, thread_ts: str, text: str):
