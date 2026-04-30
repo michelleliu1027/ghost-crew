@@ -289,11 +289,20 @@ def backfill(days: int = 30, target_user: str | None = None, dry_run: bool = Fal
             "",
         ]
         if skipped:
-            summary_lines.append("*Skipped:*")
+            from collections import defaultdict
+            skip_groups = defaultdict(list)
             for r in skipped:
-                summary_lines.append(
-                    f"  • <@{r['sender']}> in <#{r['channel_id']}> — _{r['reason']}_ | <{r['msg_link']}|View>"
-                )
+                key = (r["sender"], r["channel_id"], r.get("channel_name", ""))
+                skip_groups[key].append(r)
+
+            summary_lines.append("*Skipped:*")
+            for (sender, ch_id, ch_name), items in skip_groups.items():
+                count = len(items)
+                reason = items[0].get("reason", "").replace("SKIP: ", "").split(".")[0]
+                if count == 1:
+                    summary_lines.append(f"  • <@{sender}> in <#{ch_id}> — _{reason}_ | <{items[0]['msg_link']}|View>")
+                else:
+                    summary_lines.append(f"  • <@{sender}> in <#{ch_id}> — {count} messages, _{reason}_")
             summary_lines.append("")
         if drafted:
             summary_lines.append(f"*{len(drafted)} drafts below in thread* :point_down:")
