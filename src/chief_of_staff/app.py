@@ -246,8 +246,8 @@ def _process_single_mention(
     review_queue: ReviewQueue,
     tracker: RequestTracker,
     worker_id: int = 0,
-) -> str:
-    """Process a single mention: triage → draft → post to review. Returns status."""
+) -> dict:
+    """Process a single mention: triage → draft. Returns result dict (doesn't post yet)."""
     sender = match.get("user", "") or match.get("username", "")
     text = match.get("text", "")
     ts = match.get("ts", "")
@@ -264,20 +264,23 @@ def _process_single_mention(
 
     logger.info(f"[Agent #{worker_id}] Processing: {sender_name} in #{channel_name}")
 
+    msg_ts_link = ts.replace(".", "")
+    msg_link = f"https://slack.com/archives/{channel_id}/p{msg_ts_link}"
+
     # Triage
     should_reply, triage_reason = agent.triage(cfg, text, sender_name, channel_name)
     if not should_reply:
         logger.info(f"[Agent #{worker_id}] {triage_reason} — {sender_name}")
-        msg_ts_link = ts.replace(".", "")
-        msg_link = f"https://slack.com/archives/{channel_id}/p{msg_ts_link}"
-        try:
-            bot_client.chat_postMessage(
-                channel=cfg.review_channel_id,
-                text=f":see_no_evil: *{triage_reason}* — <@{sender}> in <#{channel_id}> | <{msg_link}|View>\n>>> {text[:300]}",
-            )
-        except Exception:
-            pass
-        return "skipped"
+        return {
+            "status": "skipped",
+            "reason": triage_reason,
+            "sender": sender,
+            "sender_name": sender_name,
+            "channel_id": channel_id,
+            "channel_name": channel_name,
+            "text": text,
+            "msg_link": msg_link,
+        }
 
     # Get thread context
     thread_context = None
@@ -305,31 +308,22 @@ def _process_single_mention(
         )
     except Exception as e:
         logger.error(f"[Agent #{worker_id}] Failed to generate draft: {e}")
-        return "error"
+        return {"status": "error", "sender_name": sender_name}
 
-    # Post to review queue
-    review_queue.post_draft(
-        review_channel_id=cfg.review_channel_id,
-        original_channel=channel_id,
-        original_ts=ts,
-        original_thread_ts=thread_ts,
-        sender_name=sender,
-        original_message=text,
-        draft_response=draft,
-        owner_slack_id=uid,
-    )
-
-    # Track
-    tracker.log_request(
-        doc_id=cfg.tracking_doc_id,
-        sender=sender_name,
-        channel=channel_name,
-        message=text,
-        draft=draft,
-    )
-
-    logger.info(f"[Agent #{worker_id}] Done: draft posted for {sender_name}")
-    return "drafted"
+    logger.info(f"[Agent #{worker_id}] Done: draft ready for {sender_name}")
+    return {
+        "status": "drafted",
+        "match": match,
+        "sender": sender,
+        "sender_name": sender_name,
+        "channel_id": channel_id,
+        "channel_name": channel_name,
+        "text": text,
+        "ts": ts,
+        "thread_ts": thread_ts,
+        "draft": draft,
+        "msg_link": msg_link,
+    }
 
 
 def _process_mentions_parallel(
@@ -343,12 +337,11 @@ def _process_mentions_parallel(
     tracker: RequestTracker,
     max_workers: int = 10,
 ):
-    """Process multiple mentions in parallel with summary."""
+    """Process mentions in parallel, then post grouped: drafts first, skips together."""
     n = len(matches)
     actual_workers = min(max_workers, n)
     logger.info(f"Dispatching {n} mentions to {actual_workers} agents...")
 
-    # Post start message to review channel
     try:
         bot_client.chat_postMessage(
             channel=cfg.review_channel_id,
@@ -360,10 +353,7 @@ def _process_mentions_parallel(
     import time as _time
     start = _time.time()
 
-    drafted = 0
-    skipped = 0
-    errors = 0
-
+    results = []
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {
             executor.submit(
@@ -375,22 +365,57 @@ def _process_mentions_parallel(
         }
         for future in as_completed(futures):
             try:
-                status = future.result()
-                if status == "drafted":
-                    drafted += 1
-                elif status == "skipped":
-                    skipped += 1
-                else:
-                    errors += 1
+                results.append(future.result())
             except Exception as e:
                 logger.error(f"Worker failed: {e}")
-                errors += 1
+                results.append({"status": "error"})
 
+    # --- Post to review channel: drafts first, then skips ---
+    drafted_results = [r for r in results if r["status"] == "drafted"]
+    skipped_results = [r for r in results if r["status"] == "skipped"]
+    error_count = sum(1 for r in results if r["status"] == "error")
+
+    # 1. Post each draft individually (needs separate approval)
+    for r in drafted_results:
+        review_queue.post_draft(
+            review_channel_id=cfg.review_channel_id,
+            original_channel=r["channel_id"],
+            original_ts=r["ts"],
+            original_thread_ts=r["thread_ts"],
+            sender_name=r["sender"],
+            original_message=r["text"],
+            draft_response=r["draft"],
+            owner_slack_id=uid,
+        )
+        tracker.log_request(
+            doc_id=cfg.tracking_doc_id,
+            sender=r["sender_name"],
+            channel=r["channel_name"],
+            message=r["text"],
+            draft=r["draft"],
+        )
+
+    # 2. Post all skips as one consolidated message
+    if skipped_results:
+        skip_lines = []
+        for r in skipped_results:
+            skip_lines.append(
+                f"• <@{r['sender']}> in <#{r['channel_id']}> — _{r['reason']}_ | <{r['msg_link']}|View>"
+            )
+        skip_text = ":see_no_evil: *Skipped messages:*\n" + "\n".join(skip_lines)
+        try:
+            bot_client.chat_postMessage(
+                channel=cfg.review_channel_id,
+                text=skip_text,
+            )
+        except Exception:
+            pass
+
+    # 3. Summary
     elapsed = round(_time.time() - start, 1)
-
     summary = (
         f":checkered_flag: *Ghost Crew batch complete* — {elapsed}s\n"
-        f":white_check_mark: {drafted} drafted | :see_no_evil: {skipped} skipped | :warning: {errors} errors"
+        f":white_check_mark: {len(drafted_results)} drafted | :see_no_evil: {len(skipped_results)} skipped | :warning: {error_count} errors"
     )
     logger.info(summary)
 
