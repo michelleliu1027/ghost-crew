@@ -11,7 +11,7 @@ If you're the kind of person who gets @mentioned 30 times a day across random Sl
 - **Fully invisible** — no bot joins your channels, no one sees anything
 - **You stay in control** — every draft goes through your review before sending
 - **Knows your codebase** — indexes your GitHub repos so Claude gives accurate, context-aware answers
-- **Smart filtering** — only drafts replies for messages you haven't responded to yet
+- **Smart filtering** — skips messages you've already replied to, filters out bots, and uses AI triage to ignore social chatter
 - **Multi-tenant** — your whole team can use it, each with their own config
 - **Backfill** — catch up on the last 30 days of unanswered @mentions in one go
 
@@ -24,13 +24,19 @@ Someone @mentions you on Slack (any channel, any DM)
 Ghost Crew polls for new mentions every 30s (using your user token)
         |
         v
-Checks: have you already replied? If yes, skip.
+Filter: skip bots, skip messages you already replied to
         |
         v
-Queries your knowledge base (GitHub repos, docs) for relevant context
+AI Triage (Claude Sonnet): is this worth replying to?
+        |                        |
+     REPLY                     SKIP
+        |                        |
+        v                        v
+Query knowledge base       Log as "Skipped" in
+(GitHub repos, docs)       review channel (with link)
         |
         v
-Claude drafts a response in your voice
+Claude Opus drafts a response in your voice
         |
         v
 Draft appears in your private review channel
@@ -178,6 +184,18 @@ python scripts/backfill.py --user "Your Name" --days 14
 ```
 
 Only messages you **haven't already replied to** will get drafts — so it won't spam your review channel with stuff you've already handled.
+
+## Smart filtering
+
+Every incoming @mention goes through three layers of filtering before a draft is generated:
+
+1. **Bot filter** — messages from Slack bots (automated alerts, app notifications) are ignored
+2. **Already replied** — if you already responded in the thread, no draft is needed
+3. **AI triage** — Claude Sonnet quickly classifies the message as `REPLY` or `SKIP`:
+   - Work requests, data questions, cross-team asks → **REPLY** (draft generated)
+   - Friend banter, social chat, FYI-only tags, "thanks" messages → **SKIP**
+
+Skipped messages still show up in your review channel as a one-liner with a link, so you never lose visibility — but your queue stays clean.
 
 ## Reviewing drafts
 
