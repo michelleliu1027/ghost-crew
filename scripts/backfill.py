@@ -154,7 +154,14 @@ def backfill(days: int = 30, target_user: str | None = None, dry_run: bool = Fal
                         pass
 
                 ts_readable = datetime.fromtimestamp(float(ts)).strftime("%m/%d %H:%M")
-                logger.info(f"  [{ts_readable}] {sender_name} in #{channel_name}: {text[:80]}...")
+
+                # Triage: is this worth replying to?
+                worth_replying = agent.triage(cfg, text, sender_name, channel_name)
+                status = "REPLY" if worth_replying else "SKIP"
+                logger.info(f"  [{ts_readable}] [{status}] {sender_name} in #{channel_name}: {text[:80]}...")
+
+                if not worth_replying:
+                    continue
 
                 if dry_run:
                     continue

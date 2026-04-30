@@ -191,8 +191,6 @@ def create_app() -> App:
                 if _user_already_replied(client, uid, channel_id, ts, match.get("thread_ts")):
                     continue
 
-                logger.info(f"New mention for {cfg.name} from {sender} in {channel_id}")
-
                 # Get sender name
                 try:
                     sender_info = bot_client.users_info(user=sender)
@@ -202,6 +200,23 @@ def create_app() -> App:
 
                 # Get channel name
                 channel_name = channel_info.get("name", channel_id) if isinstance(channel_info, dict) else channel_id
+
+                logger.info(f"New mention for {cfg.name} from {sender_name} in #{channel_name}")
+
+                # Triage: is this worth replying to?
+                if not agent.triage(cfg, text, sender_name, channel_name):
+                    logger.info(f"  Skipped (triage: not worth replying)")
+                    # Log skipped message to review channel as FYI
+                    msg_ts_link = ts.replace(".", "")
+                    msg_link = f"https://slack.com/archives/{channel_id}/p{msg_ts_link}"
+                    try:
+                        bot_client.chat_postMessage(
+                            channel=cfg.review_channel_id,
+                            text=f":see_no_evil: Skipped — <@{sender}> in <#{channel_id}> | <{msg_link}|View>\n>>> {text[:300]}",
+                        )
+                    except Exception:
+                        pass
+                    continue
 
                 # Get thread context
                 thread_ts = match.get("thread_ts")
