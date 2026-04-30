@@ -27,16 +27,25 @@ logger = logging.getLogger(__name__)
 
 
 def _user_already_replied(client: WebClient, user_id: str, channel_id: str, msg_ts: str, thread_ts: str | None) -> bool:
-    """Check if the user has already replied in this thread."""
+    """Check if the user has already replied in this thread or DM conversation."""
+    if thread_ts:
+        try:
+            replies = client.conversations_replies(channel=channel_id, ts=thread_ts, limit=50)
+            for msg in replies.get("messages", []):
+                if msg.get("user") == user_id and float(msg.get("ts", 0)) > float(msg_ts):
+                    return True
+        except Exception:
+            pass
+
     try:
-        root_ts = thread_ts or msg_ts
-        replies = client.conversations_replies(channel=channel_id, ts=root_ts, limit=50)
-        for msg in replies.get("messages", []):
+        history = client.conversations_history(channel=channel_id, oldest=msg_ts, limit=20)
+        for msg in history.get("messages", []):
             if msg.get("user") == user_id and float(msg.get("ts", 0)) > float(msg_ts):
                 return True
-        return False
     except Exception:
-        return False
+        pass
+
+    return False
 
 
 def _process_single_mention(

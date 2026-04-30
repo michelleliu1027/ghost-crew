@@ -264,6 +264,14 @@ def _process_single_mention(
 
     logger.info(f"[Agent #{worker_id}] Processing: {sender_name} in #{channel_name}")
 
+    # Skip DMs from excluded users
+    is_dm = channel_id.startswith("D")
+    if is_dm and sender in cfg.exclude_dm_from:
+        logger.info(f"[Agent #{worker_id}] Skipped DM from excluded user: {sender_name}")
+        return {"status": "skipped", "reason": "SKIP: excluded DM contact", "sender": sender,
+                "sender_name": sender_name, "channel_id": channel_id, "channel_name": channel_name,
+                "text": text, "msg_link": f"https://slack.com/archives/{channel_id}/p{ts.replace('.', '')}"}
+
     msg_ts_link = ts.replace(".", "")
     msg_link = f"https://slack.com/archives/{channel_id}/p{msg_ts_link}"
 
@@ -429,25 +437,31 @@ def _process_mentions_parallel(
 
 
 def _user_already_replied(client: WebClient, user_id: str, channel_id: str, msg_ts: str, thread_ts: str | None) -> bool:
-    """Check if the user has already replied in this thread/conversation."""
+    """Check if the user has already replied in this thread or DM conversation."""
+    # 1. Check thread replies (for threaded messages)
+    if thread_ts:
+        try:
+            replies = client.conversations_replies(
+                channel=channel_id, ts=thread_ts, limit=50
+            )
+            for msg in replies.get("messages", []):
+                if msg.get("user") == user_id and float(msg.get("ts", 0)) > float(msg_ts):
+                    return True
+        except Exception:
+            pass
+
+    # 2. Check channel history after the message (for flat DMs and non-threaded messages)
     try:
-        # If the message is in a thread, check thread replies
-        root_ts = thread_ts or msg_ts
-        replies = client.conversations_replies(
-            channel=channel_id, ts=root_ts, limit=50
+        history = client.conversations_history(
+            channel=channel_id, oldest=msg_ts, limit=20
         )
-        messages = replies.get("messages", [])
-        # Check if any reply after the mention is from the user
-        for msg in messages:
-            if msg.get("user") == user_id and msg.get("ts") != root_ts:
-                # User replied in this thread
-                return True
+        for msg in history.get("messages", []):
             if msg.get("user") == user_id and float(msg.get("ts", 0)) > float(msg_ts):
                 return True
-        return False
     except Exception:
-        # If we can't check, don't skip (better to draft than miss)
-        return False
+        pass
+
+    return False
 
 
 def _send_as_user(user_id: str, channel: str, thread_ts: str, text: str):

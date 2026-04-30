@@ -20,6 +20,7 @@ class UserConfig:
     tracking_doc_id: str = ""
     digest_cron: str = "0 17 * * 5"
     digest_channel: str = "DM"
+    exclude_dm_from: list[str] = field(default_factory=list)
 
 
 def _resolve_env(value: str) -> str:
@@ -54,6 +55,7 @@ def load_user_config(config_path: Path) -> UserConfig:
         tracking_doc_id=tracking.get("google_doc_id", ""),
         digest_cron=digest.get("cron", "0 17 * * 5"),
         digest_channel=digest.get("channel", "DM"),
+        exclude_dm_from=raw.get("exclude_dm_from", []),
     )
 
 
