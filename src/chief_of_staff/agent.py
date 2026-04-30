@@ -69,7 +69,7 @@ class DraftAgent:
         self.client = _create_client()
         self.kb = knowledge_base
         self.model = os.environ.get("MODEL_ID", DEFAULT_MODEL)
-        self.triage_model = os.environ.get("TRIAGE_MODEL_ID", "global.anthropic.claude-sonnet-4-6-v1")
+        self.triage_model = os.environ.get("TRIAGE_MODEL_ID", self.model)
 
     def triage(
         self,
