@@ -78,8 +78,12 @@ def _process_single_mention(
     # Triage
     should_reply, triage_reason = agent.triage(cfg, text, sender_name, channel_name)
     if not should_reply:
+        msg_ts_link = ts.replace(".", "")
+        msg_link = f"https://slack.com/archives/{channel_id}/p{msg_ts_link}"
         logger.info(f"  [{ts_readable}] [{triage_reason}] {sender_name} in #{channel_name}: {text[:80]}...")
-        return {"status": "skipped", "sender": sender_name, "channel": channel_name}
+        return {"status": "skipped", "sender": sender, "sender_name": sender_name,
+                "channel_id": channel_id, "channel_name": channel_name, "reason": triage_reason,
+                "msg_link": msg_link}
 
     logger.info(f"  [{ts_readable}] [{triage_reason}] {sender_name} in #{channel_name}: {text[:80]}...")
 
@@ -111,19 +115,22 @@ def _process_single_mention(
         logger.error(f"  Failed to generate draft: {e}")
         return {"status": "error", "sender": sender_name, "channel": channel_name}
 
-    # Post to review queue
-    review_queue.post_draft(
-        review_channel_id=cfg.review_channel_id,
-        original_channel=channel_id,
-        original_ts=ts,
-        original_thread_ts=thread_ts,
-        sender_name=sender,
-        original_message=text,
-        draft_response=draft,
-        owner_slack_id=uid,
-    )
+    msg_ts_link = ts.replace(".", "")
+    msg_link = f"https://slack.com/archives/{channel_id}/p{msg_ts_link}"
 
-    return {"status": "drafted", "sender": sender_name, "channel": channel_name}
+    return {
+        "status": "drafted",
+        "sender": sender,
+        "sender_name": sender_name,
+        "channel_id": channel_id,
+        "channel_name": channel_name,
+        "text": text,
+        "ts": ts,
+        "thread_ts": thread_ts,
+        "draft": draft,
+        "msg_link": msg_link,
+        "reason": triage_reason,
+    }
 
 
 def backfill(days: int = 30, target_user: str | None = None, dry_run: bool = False, workers: int = 10):
@@ -254,10 +261,7 @@ def backfill(days: int = 30, target_user: str | None = None, dry_run: bool = Fal
         # --- Phase 2: Process in parallel ---
         logger.info(f"Processing {len(all_matches)} mentions with {workers} parallel workers...")
 
-        total_drafted = 0
-        total_skipped = 0
-        total_errors = 0
-
+        results = []
         with ThreadPoolExecutor(max_workers=workers) as executor:
             futures = {
                 executor.submit(
@@ -269,19 +273,71 @@ def backfill(days: int = 30, target_user: str | None = None, dry_run: bool = Fal
 
             for future in as_completed(futures):
                 try:
-                    result = future.result()
-                    if result["status"] == "drafted":
-                        total_drafted += 1
-                    elif result["status"] == "skipped":
-                        total_skipped += 1
-                    else:
-                        total_errors += 1
+                    results.append(future.result())
                 except Exception as e:
                     logger.error(f"Worker failed: {e}")
-                    total_errors += 1
+                    results.append({"status": "error"})
+
+        drafted = [r for r in results if r["status"] == "drafted"]
+        skipped = [r for r in results if r["status"] == "skipped"]
+        errors = sum(1 for r in results if r["status"] == "error")
+
+        # --- Phase 3: Post one summary + drafts in thread ---
+        summary_lines = [
+            f":ghost: *Ghost Crew Backfill — {days} days*",
+            f":white_check_mark: {len(drafted)} drafts | :see_no_evil: {len(skipped)} skipped | :warning: {errors} errors",
+            "",
+        ]
+        if skipped:
+            summary_lines.append("*Skipped:*")
+            for r in skipped:
+                summary_lines.append(
+                    f"  • <@{r['sender']}> in <#{r['channel_id']}> — _{r['reason']}_ | <{r['msg_link']}|View>"
+                )
+            summary_lines.append("")
+        if drafted:
+            summary_lines.append(f"*{len(drafted)} drafts below in thread* :point_down:")
+
+        summary_ts = None
+        try:
+            res = bot_client.chat_postMessage(
+                channel=cfg.review_channel_id,
+                text="\n".join(summary_lines),
+            )
+            summary_ts = res["ts"]
+        except Exception as e:
+            logger.error(f"Failed to post summary: {e}")
+
+        if summary_ts:
+            for r in drafted:
+                draft_text = (
+                    f"*From <@{r['sender']}>* in <#{r['channel_id']}> | <{r['msg_link']}|View original>\n"
+                    f">>> {r['text'][:500]}\n\n"
+                    f"---\n"
+                    f"*Draft response:*\n{r['draft']}\n\n"
+                    f"React: :white_check_mark: to send | :x: to discard"
+                )
+                try:
+                    bot_client.chat_postMessage(
+                        channel=cfg.review_channel_id,
+                        thread_ts=summary_ts,
+                        text=draft_text,
+                        metadata={
+                            "event_type": "draft_review",
+                            "event_payload": {
+                                "channel": r["channel_id"],
+                                "ts": r["ts"],
+                                "thread_ts": r.get("thread_ts") or r["ts"],
+                                "owner": uid,
+                            },
+                        },
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to post draft in thread: {e}")
+                time.sleep(0.5)
 
         logger.info(
-            f"Done! {cfg.name}: {total_drafted} drafted, {total_skipped} skipped, {total_errors} errors"
+            f"Done! {cfg.name}: {len(drafted)} drafted, {len(skipped)} skipped, {errors} errors"
         )
 
 
