@@ -162,10 +162,57 @@ Create a private Slack channel (e.g. `#yourname-ghost-crew`), invite the bot (`/
 python -m chief_of_staff
 ```
 
-To run in the background:
+### 7. Run permanently (recommended)
+
+Ghost Crew needs to stay running to catch every mention and DM. On macOS, use `launchd` — it auto-starts on boot and restarts on crash:
+
 ```bash
-nohup python -m chief_of_staff > ghost-crew.log 2>&1 &
+# Create the plist (adjust python path if needed)
+cat > ~/Library/LaunchAgents/com.ghostcrew.agent.plist << 'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.ghostcrew.agent</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/anaconda3/bin/python</string>
+        <string>-m</string>
+        <string>chief_of_staff</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/YOUR_USER/ghost-crew</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/Users/YOUR_USER/ghost-crew/ghost-crew.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/YOUR_USER/ghost-crew/ghost-crew.log</string>
+</dict>
+</plist>
+EOF
+
+# Start it
+launchctl load ~/Library/LaunchAgents/com.ghostcrew.agent.plist
+
+# Check status
+launchctl list | grep ghostcrew
+
+# View logs
+tail -f ~/ghost-crew/ghost-crew.log
+
+# Stop
+launchctl unload ~/Library/LaunchAgents/com.ghostcrew.agent.plist
+
+# Restart (after code changes)
+launchctl unload ~/Library/LaunchAgents/com.ghostcrew.agent.plist
+launchctl load ~/Library/LaunchAgents/com.ghostcrew.agent.plist
 ```
+
+On a server (EC2, ECS, Railway, etc.), use Docker or systemd instead.
 
 ## Backfill
 
