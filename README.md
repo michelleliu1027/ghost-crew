@@ -183,13 +183,15 @@ Only messages you **haven't already replied to** will get drafts — so it won't
 
 When a request comes in, Ghost Crew posts to your review channel:
 
-> **New request from @alice** in #marketing
+> **New request from @alice** in #marketing | [View original](https://slack.com/archives/C123/p1234567890)
 > > Can you pull the conversion numbers for Q1?
 >
 > **Draft response:**
 > Hey! Q1 conversion was 12.3%, up from 11.1% in Q4. I pulled this from the weekly_conversions dashboard...
 >
 > React: :white_check_mark: to send | :pencil2: to edit | :x: to discard
+
+Each draft includes a **direct link to the original message** so you can jump to the full context with one click.
 
 - :white_check_mark: — sends the draft as you, immediately
 - :pencil2: — reply in thread with your edited version, then :white_check_mark:
