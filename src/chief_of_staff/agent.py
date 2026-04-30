@@ -61,7 +61,10 @@ SKIP — messages that do NOT need a response:
 - Someone saying "thanks" or "got it" with no follow-up needed
 - Messages in clearly social/fun channels (hackweek challenges, emoji channels, etc.)
 
-Respond with ONLY one word: REPLY or SKIP"""
+Respond in this exact format:
+REPLY: <short reason>
+or
+SKIP: <short reason>"""
 
 
 class DraftAgent:
@@ -77,24 +80,25 @@ class DraftAgent:
         incoming_message: str,
         sender_name: str,
         channel_name: str,
-    ) -> bool:
-        """Return True if the message is worth drafting a reply for."""
+    ) -> tuple[bool, str]:
+        """Return (should_reply, reason) for the message."""
         system_prompt = TRIAGE_PROMPT.format(name=user_config.name)
         user_message = f"Sender: {sender_name}\nChannel: #{channel_name}\nMessage: {incoming_message}"
 
         try:
             response = self.client.messages.create(
                 model=self.triage_model,
-                max_tokens=10,
+                max_tokens=50,
                 timeout=30,
                 system=system_prompt,
                 messages=[{"role": "user", "content": user_message}],
             )
-            answer = response.content[0].text.strip().upper()
-            return answer == "REPLY"
+            answer = response.content[0].text.strip()
+            should_reply = answer.upper().startswith("REPLY")
+            return should_reply, answer
         except Exception as e:
             logger.error(f"Triage failed: {e}")
-            return True  # if triage fails, default to drafting
+            return True, "triage failed, defaulting to REPLY"
 
     def generate_draft(
         self,

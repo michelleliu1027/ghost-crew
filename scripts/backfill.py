@@ -67,12 +67,12 @@ def _process_single_mention(
         sender_name = sender
 
     # Triage
-    worth_replying = agent.triage(cfg, text, sender_name, channel_name)
-    if not worth_replying:
-        logger.info(f"  [{ts_readable}] [SKIP] {sender_name} in #{channel_name}: {text[:80]}...")
+    should_reply, triage_reason = agent.triage(cfg, text, sender_name, channel_name)
+    if not should_reply:
+        logger.info(f"  [{ts_readable}] [{triage_reason}] {sender_name} in #{channel_name}: {text[:80]}...")
         return {"status": "skipped", "sender": sender_name, "channel": channel_name}
 
-    logger.info(f"  [{ts_readable}] [REPLY] {sender_name} in #{channel_name}: {text[:80]}...")
+    logger.info(f"  [{ts_readable}] [{triage_reason}] {sender_name} in #{channel_name}: {text[:80]}...")
 
     # Get thread context
     thread_context = None
@@ -226,10 +226,9 @@ def backfill(days: int = 30, target_user: str | None = None, dry_run: bool = Fal
                 except Exception:
                     sender_name = sender
 
-                worth_replying = agent.triage(cfg, text, sender_name, channel_name)
-                status = "REPLY" if worth_replying else "SKIP"
+                _, triage_reason = agent.triage(cfg, text, sender_name, channel_name)
                 ts_readable = datetime.fromtimestamp(float(ts)).strftime("%m/%d %H:%M")
-                logger.info(f"  [{ts_readable}] [{status}] {sender_name} in #{channel_name}: {text[:80]}...")
+                logger.info(f"  [{ts_readable}] [{triage_reason}] {sender_name} in #{channel_name}: {text[:80]}...")
 
             logger.info(f"Dry run complete for {cfg.name}")
             continue

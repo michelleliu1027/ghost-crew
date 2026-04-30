@@ -263,14 +263,15 @@ def _process_single_mention(
     logger.info(f"[Agent #{worker_id}] Processing: {sender_name} in #{channel_name}")
 
     # Triage
-    if not agent.triage(cfg, text, sender_name, channel_name):
-        logger.info(f"[Agent #{worker_id}] Skipped (not worth replying): {sender_name}")
+    should_reply, triage_reason = agent.triage(cfg, text, sender_name, channel_name)
+    if not should_reply:
+        logger.info(f"[Agent #{worker_id}] {triage_reason} — {sender_name}")
         msg_ts_link = ts.replace(".", "")
         msg_link = f"https://slack.com/archives/{channel_id}/p{msg_ts_link}"
         try:
             bot_client.chat_postMessage(
                 channel=cfg.review_channel_id,
-                text=f":see_no_evil: Skipped — <@{sender}> in <#{channel_id}> | <{msg_link}|View>\n>>> {text[:300]}",
+                text=f":see_no_evil: *{triage_reason}* — <@{sender}> in <#{channel_id}> | <{msg_link}|View>\n>>> {text[:300]}",
             )
         except Exception:
             pass
