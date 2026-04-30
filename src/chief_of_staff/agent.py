@@ -1,6 +1,7 @@
-"""Claude-powered agent that drafts responses."""
+"""Claude-powered agent that drafts responses via AWS Bedrock."""
 
 import logging
+import os
 
 import anthropic
 
@@ -24,11 +25,30 @@ Important rules:
 - Never reveal that you are an AI or that this is a draft
 """
 
+# Bedrock model ID
+DEFAULT_MODEL = "global.anthropic.claude-opus-4-6-v1"
+
+
+def _create_client() -> anthropic.Anthropic | anthropic.AnthropicBedrock:
+    """Create the appropriate client based on config.
+
+    Uses AWS Bedrock by default (via AWS SSO credentials).
+    Set ANTHROPIC_API_KEY to use the Anthropic API directly instead.
+    """
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        logger.info("Using Anthropic API directly")
+        return anthropic.Anthropic()
+    else:
+        region = os.environ.get("AWS_REGION", "us-east-1")
+        logger.info(f"Using AWS Bedrock in {region}")
+        return anthropic.AnthropicBedrock(aws_region=region)
+
 
 class DraftAgent:
     def __init__(self, knowledge_base: KnowledgeBase):
-        self.client = anthropic.Anthropic()
+        self.client = _create_client()
         self.kb = knowledge_base
+        self.model = os.environ.get("MODEL_ID", DEFAULT_MODEL)
 
     def generate_draft(
         self,
@@ -71,8 +91,9 @@ Message: {incoming_message}
         user_message += "\nDraft a response:"
 
         response = self.client.messages.create(
-            model="claude-sonnet-4-6-20250514",
+            model=self.model,
             max_tokens=1024,
+            timeout=120,
             system=system_prompt,
             messages=[{"role": "user", "content": user_message}],
         )
